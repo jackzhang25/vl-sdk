@@ -309,14 +309,14 @@ class Dataset:
         # Step 1: Start async search and get initial status using the general VQL function
         return self.search_by_vql(vql, entity_type)
 
-    def search_by_captions(self, captions: List[str], entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS_ALL_OF) -> pd.DataFrame:
+    def search_by_captions(self, captions: List[str], entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS) -> pd.DataFrame:
         """
         Search dataset by captions using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame.
 
         Args:
             captions (List[str]): List of text strings to search in captions (will be combined into one search string)
             entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
-            search_operator (SearchOperator): Search operator for captions (default: SearchOperator.IS_ALL_OF)
+            search_operator (SearchOperator): Search operator for captions (default: SearchOperator.IS)
 
         Returns:
             pd.DataFrame: DataFrame containing the search results, or empty if not ready
@@ -337,7 +337,7 @@ class Dataset:
             except ValueError:
                 raise ValueError(f"Invalid search_operator for captions: {search_operator}")
 
-        if search_operator != SearchOperator.IS_ALL_OF:
+        if search_operator != SearchOperator.IS:
             raise NotImplementedError(f"Search operator {search_operator} is not implemented for captions yet.")
 
         # Form the VQL for caption search (keep op hardcoded as 'fts')
