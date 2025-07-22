@@ -6,7 +6,7 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 
-from .dataset import Dataset, IssueType
+from .dataset import Dataset
 from .logger import get_logger
 
 
