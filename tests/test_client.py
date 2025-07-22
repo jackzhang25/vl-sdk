@@ -1,9 +1,8 @@
 """Tests for the VisualLayerClient."""
 
+import pandas as pd
 from src.visual_layer_sdk.client import VisualLayerClient
 from src.visual_layer_sdk.dataset import Dataset
-import pandas as pd
-import pytest
 from unittest.mock import MagicMock, patch
 
 
