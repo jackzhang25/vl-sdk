@@ -255,17 +255,16 @@ df = dataset.search_by_issues(issue_type=IssueType.BLUR, confidence_min=0.9)
 
 **Returns:** DataFrame containing the search results, or empty if not ready or no matches found.
 
-##### `search_by_visual_similarity(image_path: str, threshold: str = "0", anchor_type: str = "UPLOAD", entity_type: str = "IMAGES") -> pd.DataFrame`
+##### `search_by_visual_similarity(image_path: str, threshold: int = 0, entity_type: str = "IMAGES") -> pd.DataFrame`
 Search the dataset by visual similarity using a local image file as anchor, poll until export is ready, download the results, and return as a DataFrame.
 
 ```python
 df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg")
-df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", threshold="0.5")
+df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", threshold=0.5)
 ```
 
 - `image_path` (str): Path to the image file to use as anchor
-- `threshold` (str): Similarity threshold as string (default: "0")
-- `anchor_type` (str): Anchor type (default: "UPLOAD")
+- `threshold` (int): Similarity threshold as string (default: 0)
 - `entity_type` (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
 
 **Returns:** DataFrame containing the search results, or empty if not ready or no matches found.
