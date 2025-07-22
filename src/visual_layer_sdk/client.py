@@ -53,40 +53,12 @@ class VisualLayerClient:
     def _get_headers_no_jwt(self) -> dict:
         return {"accept": "application/json", "Content-Type": "application/json"}
 
-    def get_sample_datasets(self) -> list:
-        """Get sample datasets"""
-        url = f"{self.base_url}/datasets/sample_data"
-        headers = self._get_headers()
-
-        self.logger.request_details(url, "GET")
-        self.logger.debug(f"Headers: {headers}")
-        self.logger.debug(f"JWT Token: {self._generate_jwt()}")
-
-        try:
-            self.logger.info("Fetching sample datasets...")
-            response = self.session.get(url, headers=headers, timeout=10)
-            self.logger.request_success(response.status_code)
-            self.logger.debug(f"Response Headers: {dict(response.headers)}")
-            self.logger.debug(f"Response Body: {response.text[:500]}...")
-
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.Timeout:
-            self.logger.error("Request timed out after 10 seconds")
-            raise
-        except requests.exceptions.RequestException as e:
-            self.logger.request_error(str(e))
-            if hasattr(e, "response"):
-                self.logger.debug(f"Error response: {e.response.text}")
-            raise
-
     def healthcheck(self) -> dict:
         """Check the health of the API"""
         response = self.session.get(f"{self.base_url}/healthcheck", headers=self._get_headers())
         response.raise_for_status()
         return response.json()
 
-    # TODO: consider adding a limit to the number of datasets returned
     def get_all_datasets(self) -> pd.DataFrame:
         """Get all datasets as a DataFrame"""
         response = self.session.get(f"{self.base_url}/datasets", headers=self._get_headers())
@@ -371,22 +343,22 @@ def main():
     test_dataset_id = "bc41491e-78ae-11ef-ba4b-8a774758b536"
     test_dataset = Dataset(client, test_dataset_id)
 
-    print(test_dataset)
-    # Test issue search
-    print("\n📊 Testing issue search:")
+    # Manual test for search_by_labels
+    print("\n🔍 Testing search_by_labels:")
+    labels = "healthy"
     try:
-        df_issues = test_dataset.search_by_issues(issue_type=IssueType.OUTLIERS)
-        print(f"✅ Found {len(df_issues)} images with outliers using issue search")
-        if len(df_issues) > 0:
+        df_labels = test_dataset.search_by_labels(labels)
+        print(f"✅ Found {len(df_labels)} images matching labels")
+        if len(df_labels) > 0:
             print("Sample results:")
-            print(df_issues.head(3))
-            csv_filename = "issue_search_results.csv"
-            df_issues.to_csv(csv_filename, index=False)
+            print(df_labels.head(3))
+            csv_filename = "label_search_results.csv"
+            df_labels.to_csv(csv_filename, index=False)
             print(f"📄 Results saved to: {csv_filename}")
         else:
-            print("❌ No images with outliers found")
+            print("❌ No images matching labels found")
     except Exception as e:
-        print(f"❌ Error in issue search: {str(e)}")
+        print(f"❌ Error in label search: {str(e)}")
 
 
 if __name__ == "__main__":

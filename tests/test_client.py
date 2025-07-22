@@ -1,6 +1,10 @@
 """Tests for the VisualLayerClient."""
 
 from src.visual_layer_sdk.client import VisualLayerClient
+from src.visual_layer_sdk.dataset import Dataset
+import pandas as pd
+import pytest
+from unittest.mock import MagicMock, patch
 
 
 class TestVisualLayerClient:
@@ -52,3 +56,27 @@ class TestVisualLayerClient:
         assert "Authorization" not in headers
         assert headers["accept"] == "application/json"
         assert headers["Content-Type"] == "application/json"
+
+
+class TestDatasetSearch:
+    def test_search_by_visual_similarity(self):
+        # Mock client and session
+        mock_client = MagicMock()
+        mock_client.base_url = "https://app.visual-layer.com/api/v1"
+        mock_client._get_headers.return_value = {"Authorization": "Bearer test", "accept": "application/json", "Content-Type": "application/json"}
+        mock_client.session.get.return_value.json.return_value = {"status": "READY"}
+        mock_client.session.get.return_value.raise_for_status = MagicMock()
+        mock_client.session.post.return_value.json.return_value = {"anchor_media_id": "test_media_id"}
+        mock_client.session.post.return_value.raise_for_status = MagicMock()
+
+        # Patch Dataset._validate_dataset_exists to do nothing
+        with patch.object(Dataset, "_validate_dataset_exists", return_value=None):
+            # Patch search_by_image_file to return a fake anchor_media_id
+            with patch.object(Dataset, "search_by_image_file", return_value={"anchor_media_id": "test_media_id"}):
+                # Patch search_by_vql to return a dummy DataFrame
+                with patch.object(Dataset, "search_by_vql", return_value=pd.DataFrame({"id": [1], "score": [0.99]})) as mock_search_by_vql:
+                    dataset = Dataset(mock_client, "test-dataset-id")
+                    df = dataset.search_by_visual_similarity("/path/to/image.jpg", threshold=10)
+                    assert isinstance(df, pd.DataFrame)
+                    assert not df.empty
+                    mock_search_by_vql.assert_called()
