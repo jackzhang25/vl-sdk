@@ -60,13 +60,22 @@ The main client class for interacting with the Visual Layer API.
 
 #### Initialization
 
+- **Production (default):**
+
 ```python
-client = VisualLayerClient(api_key: str, api_secret: str)
+client = VisualLayerClient(api_key="your_api_key", api_secret="your_api_secret")
+```
+
+- **Staging:**
+
+```python
+client = VisualLayerClient(api_key="your_api_key", api_secret="your_api_secret", environment="staging")
 ```
 
 **Parameters:**
 - `api_key` (str): Your Visual Layer API key
 - `api_secret` (str): Your Visual Layer API secret
+- `environment` (str): 'production' (default) or 'staging'. Determines which API base URL to use.
 
 #### Core Methods
 
@@ -239,20 +248,21 @@ df = dataset.search_by_captions(["cat", "sitting", "outdoors"], "IMAGES")
 
 **Returns:** DataFrame containing the search results, or empty if not ready or no matches found.
 
-##### `search_by_issues(issue_type: IssueType, confidence_min: float = 0.8, confidence_max: float = 1.0, entity_type: str = "IMAGES") -> pd.DataFrame`
+##### `search_by_issues(issue_type: IssueType, entity_type: str = "IMAGES", search_operator: SearchOperator = SearchOperator.IS_ONE_OF, confidence_min: float = 0.8, confidence_max: float = 1.0) -> pd.DataFrame`
 Search the dataset by issues using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame.
 
 ```python
 from visual_layer_sdk.dataset import IssueType
 
-df = dataset.search_by_issues(issue_type=IssueType.OUTLIERS, entity_type="IMAGES")
-df = dataset.search_by_issues(issue_type=IssueType.BLUR, entity_type="IMAGES", confidence_min=0.9)
+df = dataset.search_by_issues(issue_type=IssueType.OUTLIERS, entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, confidence_min=0.8, confidence_max=1.0)
+df = dataset.search_by_issues(issue_type=IssueType.BLUR, entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, confidence_min=0.9, confidence_max=1.0)
 ```
 
 - `issue_type` (IssueType): Issue type to search for (e.g., IssueType.BLUR, IssueType.DARK, IssueType.OUTLIERS, IssueType.DUPLICATES, IssueType.MISLABELS, IssueType.BRIGHT, IssueType.NORMAL, IssueType.LABEL_OUTLIER)
+- `entity_type` (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
+- `search_operator` (SearchOperator): Search operator for issues (default: SearchOperator.IS_ONE_OF)
 - `confidence_min` (float): Minimum confidence threshold (default: 0.8)
 - `confidence_max` (float): Maximum confidence threshold (default: 1.0)
-- `entity_type` (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
 
 **Returns:** DataFrame containing the search results, or empty if not ready or no matches found.
 

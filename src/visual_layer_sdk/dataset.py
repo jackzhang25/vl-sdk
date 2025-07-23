@@ -217,73 +217,14 @@ class Dataset:
     def get_status(self) -> dict:
         return self.get_details()["status"]
 
-    def process_export_download_to_dataframe(self, download_uri: str) -> pd.DataFrame:
-        """
-        Download the export results from the provided URI and flatten to a DataFrame.
-        Can be used by any async search function that returns a download_uri.
-
-        Args:
-            download_uri (str): The download URI from the export status response
-
-        Returns:
-            pd.DataFrame: DataFrame containing the search results, or empty if not valid
-        """
-        # Download and process the export results
-        export_data = self.download_export_results(download_uri)
-        if not export_data or "media_items" not in export_data:
-            self.logger.warning("No media_items found in downloaded export data")
-            return pd.DataFrame()
-
-        # Flatten to DataFrame (reuse export_to_dataframe logic)
-        processed_items = []
-        for item in export_data["media_items"]:
-            processed_item = item.copy()
-            metadata_items = item.get("metadata_items", [])
-            processed_item["captions"] = []
-            processed_item["image_labels"] = []
-            processed_item["object_labels"] = []
-            processed_item["issues"] = []
-            for metadata in metadata_items:
-                metadata_type = metadata.get("type")
-                properties = metadata.get("properties", {})
-                if metadata_type == "caption":
-                    caption = properties.get("caption", "")
-                    if caption:
-                        processed_item["captions"].append(caption)
-                elif metadata_type == "image_label":
-                    category = properties.get("category_name", "")
-                    source = properties.get("source", "")
-                    if category:
-                        processed_item["image_labels"].append(f"{category}({source})")
-                elif metadata_type == "object_label":
-                    category = properties.get("category_name", "")
-                    bbox = properties.get("bbox", [])
-                    if category:
-                        processed_item["object_labels"].append(f"{category}{bbox}")
-                elif metadata_type == "issue":
-                    issue_type = properties.get("issue_type", "")
-                    description = properties.get("issues_description", "")
-                    confidence = properties.get("confidence", 0.0)
-                    if issue_type:
-                        processed_item["issues"].append(f"{issue_type}:{description}({confidence:.3f})")
-            processed_item["captions"] = "; ".join(processed_item["captions"])
-            processed_item["image_labels"] = "; ".join(processed_item["image_labels"])
-            processed_item["object_labels"] = "; ".join(processed_item["object_labels"])
-            processed_item["issues"] = "; ".join(processed_item["issues"])
-            processed_item.pop("metadata_items", None)
-            processed_items.append(processed_item)
-
-        df = pd.DataFrame(processed_items)
-        self.logger.export_completed(self.dataset_id, len(df))
-        return df
-
-    def search_by_visual_similarity(self, image_path: str, entity_type: str = "IMAGES", threshold: int = 0) -> pd.DataFrame:
+    def search_by_visual_similarity(self, image_path: str, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS, threshold: int = 0) -> pd.DataFrame:
         """
         Search dataset by visual similarity asynchronously, poll until export is ready, download the results, and return as a DataFrame.
 
         Args:
             image_path (str): Path to the image file to use as anchor
             entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
+            search_operator (SearchOperator): Search operator for visual similarity (default: SearchOperator.IS)
             threshold (int): Similarity threshold as string (default: 0)
 
         Returns:
@@ -293,10 +234,20 @@ class Dataset:
             ValueError: If image_path is not provided
 
         Examples:
-            df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", threshold=0)
+            df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS, threshold=0)
         """
+        if isinstance(search_operator, str):
+            try:
+                search_operator = SearchOperator(search_operator)
+            except ValueError:
+                self.logger.warning(f"Invalid search_operator for visual similarity: {search_operator}")
+                return pd.DataFrame()
+        if search_operator != SearchOperator.IS:
+            self.logger.warning(f"Search operator {search_operator} is not implemented for visual similarity.")
+            return pd.DataFrame()
+
         # Get media_id from image file upload
-        upload_result = self.search_by_image_file(image_path=image_path)
+        upload_result = self._search_by_image_file(image_path=image_path)
         media_id = upload_result.get("anchor_media_id")
         if not media_id:
             raise ValueError("Failed to get anchor_media_id from image upload")
@@ -321,6 +272,12 @@ class Dataset:
         Examples:
             df = dataset.search_by_captions(["cat", "sitting"], "IMAGES", search_operator=SearchOperator.IS)
         """
+        # Check if captions search is enabled in user config
+        user_config = self._get_user_config()
+        if not user_config.get("captions_search", False):
+            self.logger.warning("Caption search is not enabled for this dataset.")
+            return pd.DataFrame()
+
         if isinstance(captions, str):
             combined_text = captions
         elif not isinstance(captions, list):
@@ -335,7 +292,8 @@ class Dataset:
                 raise ValueError(f"Invalid search_operator for captions: {search_operator}")
 
         if search_operator != SearchOperator.IS:
-            raise NotImplementedError(f"Search operator {search_operator} is not implemented for captions yet.")
+            self.logger.warning(f"Search operator {search_operator} is not implemented for captions yet.")
+            return pd.DataFrame()
 
         # Form the VQL for caption search (keep op hardcoded as 'fts')
         vql = [{"text": {"op": "fts", "value": combined_text}}]
@@ -358,6 +316,12 @@ class Dataset:
         Examples:
             df = dataset.search_by_labels(["cat", "dog"], "IMAGES", search_operator=SearchOperator.IS_ONE_OF)
         """
+        # Check if labels search is enabled in user config
+        user_config = self._get_user_config()
+        if not user_config.get("labels_search", False):
+            self.logger.warning("Label search is not enabled for this dataset.")
+            return pd.DataFrame()
+
         if isinstance(labels, str):
             labels = [labels]
         elif not isinstance(labels, list):
@@ -370,7 +334,8 @@ class Dataset:
                 raise ValueError(f"Invalid search_operator for labels: {search_operator}")
 
         # if search_operator != SearchOperator.IS_ONE_OF:
-        #    raise NotImplementedError(f"Search operator {search_operator} is not implemented for labels yet.")
+        #    self.logger.warning(f"Search operator {search_operator} is not implemented for labels yet.")
+        #    return pd.DataFrame()
 
         # Form the VQL for label search (keep op hardcoded as 'one_of')
         vql = [{"id": "label_filter", "labels": {"op": search_operator.value, "value": labels}}]
@@ -379,7 +344,7 @@ class Dataset:
         return self.search_by_vql(vql, entity_type)
 
     def search_by_issues(
-        self, issue_type: IssueType = None, entity_type: str = "IMAGES", confidence_min: float = 0.8, confidence_max: float = 1.0, search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF
+        self, issue_type: IssueType = None, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF, confidence_min: float = 0.8, confidence_max: float = 1.0
     ) -> pd.DataFrame:
         """
         Search dataset by issues using VQL and return as DataFrame.
@@ -387,15 +352,15 @@ class Dataset:
         Args:
             issue_type (IssueType): Issue type to search for (e.g., IssueType.BLUR, IssueType.DARK, IssueType.OUTLIERS)
             entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
+            search_operator (SearchOperator): Search operator for issues (default: SearchOperator.IS_ONE_OF)
             confidence_min (float): Minimum confidence threshold (default: 0.8)
             confidence_max (float): Maximum confidence threshold (default: 1.0)
-            search_operator (SearchOperator): Search operator for issues (default: SearchOperator.IS_ONE_OF)
 
         Returns:
             pd.DataFrame: DataFrame containing the search results
 
         Examples:
-            df = dataset.search_by_issues(issue_type=IssueType.BLUR, entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF)
+            df = dataset.search_by_issues(issue_type=IssueType.BLUR, entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, confidence_min=0.8, confidence_max=1.0)
         """
         if not issue_type:
             raise ValueError("issue_type must be provided")
@@ -489,13 +454,12 @@ class Dataset:
                 return pd.DataFrame()
 
             # Step 2: Use the general processor
-            return self.process_export_download_to_dataframe(download_uri)
+            return self._process_export_download_to_dataframe(download_uri)
         except Exception as e:
             self.logger.error(f"VQL search failed: {str(e)}")
             raise
 
-    # 4 booleans to see if each search is available
-    def download_export_results(self, download_uri: str) -> dict:
+    def _download_export_results(self, download_uri: str) -> dict:
         """
         Download the export results from the provided URI.
         Handles both ZIP (with JSON inside) and direct JSON responses.
@@ -573,7 +537,7 @@ class Dataset:
             self.logger.error(f"Export download failed: {str(e)}")
             raise
 
-    def search_by_image_file(self, image_path: str, allow_deleted: bool = False) -> dict:
+    def _search_by_image_file(self, image_path: str, allow_deleted: bool = False) -> dict:
         """
         Upload an image file and get the anchor media ID for similarity search.
 
@@ -585,7 +549,7 @@ class Dataset:
             dict: Dictionary with anchor_media_id and anchor_type
 
         Examples:
-            result = dataset.search_by_image_file("/path/to/image.jpg")
+            result = dataset._search_by_image_file("/path/to/image.jpg")
         """
         import os
         from pathlib import Path
@@ -643,9 +607,92 @@ class Dataset:
             self.logger.error(f"Image similarity search failed: {str(e)}")
             raise
 
+    def _process_export_download_to_dataframe(self, download_uri: str) -> pd.DataFrame:
+        """
+        Download the export results from the provided URI and flatten to a DataFrame.
+        Can be used by any async search function that returns a download_uri.
 
-__all__ = [
-    "Dataset",
-    "SearchOperator",
-    "IssueType",
-]
+        Args:
+            download_uri (str): The download URI from the export status response
+
+        Returns:
+            pd.DataFrame: DataFrame containing the search results, or empty if not valid
+        """
+        # Download and process the export results
+        export_data = self._download_export_results(download_uri)
+        if not export_data or "media_items" not in export_data:
+            self.logger.warning("No media_items found in downloaded export data")
+            return pd.DataFrame()
+
+        # Flatten to DataFrame (reuse export_to_dataframe logic)
+        processed_items = []
+        for item in export_data["media_items"]:
+            processed_item = item.copy()
+            metadata_items = item.get("metadata_items", [])
+            processed_item["captions"] = []
+            processed_item["image_labels"] = []
+            processed_item["object_labels"] = []
+            processed_item["issues"] = []
+            for metadata in metadata_items:
+                metadata_type = metadata.get("type")
+                properties = metadata.get("properties", {})
+                if metadata_type == "caption":
+                    caption = properties.get("caption", "")
+                    if caption:
+                        processed_item["captions"].append(caption)
+                elif metadata_type == "image_label":
+                    category = properties.get("category_name", "")
+                    source = properties.get("source", "")
+                    if category:
+                        processed_item["image_labels"].append(f"{category}({source})")
+                elif metadata_type == "object_label":
+                    category = properties.get("category_name", "")
+                    bbox = properties.get("bbox", [])
+                    if category:
+                        processed_item["object_labels"].append(f"{category}{bbox}")
+                elif metadata_type == "issue":
+                    issue_type = properties.get("issue_type", "")
+                    description = properties.get("issues_description", "")
+                    confidence = properties.get("confidence", 0.0)
+                    if issue_type:
+                        processed_item["issues"].append(f"{issue_type}:{description}({confidence:.3f})")
+            processed_item["captions"] = "; ".join(processed_item["captions"])
+            processed_item["image_labels"] = "; ".join(processed_item["image_labels"])
+            processed_item["object_labels"] = "; ".join(processed_item["object_labels"])
+            processed_item["issues"] = "; ".join(processed_item["issues"])
+            processed_item.pop("metadata_items", None)
+            processed_items.append(processed_item)
+
+        df = pd.DataFrame(processed_items)
+        self.logger.export_completed(self.dataset_id, len(df))
+        return df
+
+    def _get_user_config(self) -> dict:
+        """
+        Get the user config for this dataset from the /user_config endpoint.
+        Returns a dict with 'labels_search' and 'captions_search' from the TEXTUAL_SEARCH_IMAGE feature, plus the raw response.
+
+        Returns:
+            dict: {"labels_search": bool or None, "captions_search": bool or None, "raw": full_response}
+        """
+        url = f"{self.base_url}/user_config"
+        params = {"dataset_id": self.dataset_id}
+        headers = self.client._get_headers()
+        response = self.client.session.get(url, params=params, headers=headers)
+        response.raise_for_status()
+        full_response = response.json()
+
+        labels_search = None
+        captions_search = None
+        features = full_response.get("features", [])
+        for feature in features:
+            if feature.get("feature_key") == "TEXTUAL_SEARCH_IMAGE":
+                options = feature.get("feature_options", {})
+                labels_search = options.get("labels_search")
+                captions_search = options.get("captions_search")
+                break
+
+        return {
+            "labels_search": labels_search,
+            "captions_search": captions_search,
+        }
