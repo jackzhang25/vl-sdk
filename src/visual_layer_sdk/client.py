@@ -7,6 +7,7 @@ import requests
 from dotenv import load_dotenv
 
 from .dataset import Dataset
+from .dataset import SearchOperator
 from .logger import get_logger
 
 
@@ -345,9 +346,10 @@ def main():
 
     # Manual test for search_by_labels
     print("\n🔍 Testing search_by_labels:")
-    labels = "healthy"
+    labels = ["bean_rust", "angular_leaf_spot"]
+    search_operator = SearchOperator.IS_NOT_ONE_OF
     try:
-        df_labels = test_dataset.search_by_labels(labels)
+        df_labels = test_dataset.search_by_labels(labels, "IMAGES", search_operator=search_operator)
         print(f"✅ Found {len(df_labels)} images matching labels")
         if len(df_labels) > 0:
             print("Sample results:")

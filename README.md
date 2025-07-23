@@ -219,7 +219,7 @@ Search the dataset by labels using VQL asynchronously, poll until export is read
 
 ```python
 labels = ["cat", "dog"]
-df = dataset.search_by_labels(labels)
+df = dataset.search_by_labels(labels, "IMAGES")
 ```
 
 - `labels` (List[str]): List of labels to search for
@@ -231,7 +231,7 @@ df = dataset.search_by_labels(labels)
 Search the dataset by captions using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame.
 
 ```python
-df = dataset.search_by_captions(["cat", "sitting", "outdoors"])
+df = dataset.search_by_captions(["cat", "sitting", "outdoors"], "IMAGES")
 ```
 
 - `captions` (List[str]): List of text strings to search in captions (will be combined into one search string)
@@ -239,19 +239,20 @@ df = dataset.search_by_captions(["cat", "sitting", "outdoors"])
 
 **Returns:** DataFrame containing the search results, or empty if not ready or no matches found.
 
-##### `search_by_issues(issue_type: IssueType, confidence_min: float = 0.8, confidence_max: float = 1.0) -> pd.DataFrame`
+##### `search_by_issues(issue_type: IssueType, confidence_min: float = 0.8, confidence_max: float = 1.0, entity_type: str = "IMAGES") -> pd.DataFrame`
 Search the dataset by issues using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame.
 
 ```python
 from visual_layer_sdk.dataset import IssueType
 
-df = dataset.search_by_issues(issue_type=IssueType.OUTLIERS)
-df = dataset.search_by_issues(issue_type=IssueType.BLUR, confidence_min=0.9)
+df = dataset.search_by_issues(issue_type=IssueType.OUTLIERS, entity_type="IMAGES")
+df = dataset.search_by_issues(issue_type=IssueType.BLUR, entity_type="IMAGES", confidence_min=0.9)
 ```
 
 - `issue_type` (IssueType): Issue type to search for (e.g., IssueType.BLUR, IssueType.DARK, IssueType.OUTLIERS, IssueType.DUPLICATES, IssueType.MISLABELS, IssueType.BRIGHT, IssueType.NORMAL, IssueType.LABEL_OUTLIER)
 - `confidence_min` (float): Minimum confidence threshold (default: 0.8)
 - `confidence_max` (float): Maximum confidence threshold (default: 1.0)
+- `entity_type` (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
 
 **Returns:** DataFrame containing the search results, or empty if not ready or no matches found.
 
@@ -259,8 +260,8 @@ df = dataset.search_by_issues(issue_type=IssueType.BLUR, confidence_min=0.9)
 Search the dataset by visual similarity using a local image file as anchor, poll until export is ready, download the results, and return as a DataFrame.
 
 ```python
-df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg")
-df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", threshold=0.5)
+df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES")
+df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", threshold=0.5)
 ```
 
 - `image_path` (str): Path to the image file to use as anchor

@@ -9,9 +9,9 @@ from .logger import get_logger
 
 class SearchOperator(Enum):
     IS = "is"
-    IS_NOT = "is not"
-    IS_ONE_OF = "is one of"
-    IS_NOT_ONE_OF = "is not one of"
+    IS_NOT = "is_not"
+    IS_ONE_OF = "one_of"
+    IS_NOT_ONE_OF = "not_one_of"
 
 
 class IssueType(Enum):
@@ -277,14 +277,14 @@ class Dataset:
         self.logger.export_completed(self.dataset_id, len(df))
         return df
 
-    def search_by_visual_similarity(self, image_path: str, threshold: int = 0, entity_type: str = "IMAGES") -> pd.DataFrame:
+    def search_by_visual_similarity(self, image_path: str, entity_type: str = "IMAGES", threshold: int = 0) -> pd.DataFrame:
         """
         Search dataset by visual similarity asynchronously, poll until export is ready, download the results, and return as a DataFrame.
 
         Args:
             image_path (str): Path to the image file to use as anchor
-            threshold (str): Similarity threshold as string (default: "0")
             entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
+            threshold (int): Similarity threshold as string (default: 0)
 
         Returns:
             pd.DataFrame: DataFrame containing the search results, or empty if not ready
@@ -293,16 +293,13 @@ class Dataset:
             ValueError: If image_path is not provided
 
         Examples:
-            df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg")
+            df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", threshold=0)
         """
-
         # Get media_id from image file upload
         upload_result = self.search_by_image_file(image_path=image_path)
         media_id = upload_result.get("anchor_media_id")
         if not media_id:
             raise ValueError("Failed to get anchor_media_id from image upload")
-        # pass in threshold
-        # pydantic
         # Form the VQL for visual similarity search
         vql = [{"id": "similarity_search", "similarity": {"op": "upload", "value": media_id}}]
 
@@ -322,7 +319,7 @@ class Dataset:
             pd.DataFrame: DataFrame containing the search results, or empty if not ready
 
         Examples:
-            df = dataset.search_by_captions(["cat", "sitting"], search_operator=SearchOperator.IS_ALL_OF)
+            df = dataset.search_by_captions(["cat", "sitting"], "IMAGES", search_operator=SearchOperator.IS)
         """
         if isinstance(captions, str):
             combined_text = captions
@@ -359,7 +356,7 @@ class Dataset:
             pd.DataFrame: DataFrame containing the search results, or empty if not ready
 
         Examples:
-            df = dataset.search_by_labels(["cat", "dog"], search_operator=SearchOperator.IS_ONE_OF)
+            df = dataset.search_by_labels(["cat", "dog"], "IMAGES", search_operator=SearchOperator.IS_ONE_OF)
         """
         if isinstance(labels, str):
             labels = [labels]
@@ -372,21 +369,24 @@ class Dataset:
             except ValueError:
                 raise ValueError(f"Invalid search_operator for labels: {search_operator}")
 
-        if search_operator != SearchOperator.IS_ONE_OF:
-            raise NotImplementedError(f"Search operator {search_operator} is not implemented for labels yet.")
+        # if search_operator != SearchOperator.IS_ONE_OF:
+        #    raise NotImplementedError(f"Search operator {search_operator} is not implemented for labels yet.")
 
         # Form the VQL for label search (keep op hardcoded as 'one_of')
-        vql = [{"id": "label_filter", "labels": {"op": "one_of", "value": labels}}]
+        vql = [{"id": "label_filter", "labels": {"op": search_operator.value, "value": labels}}]
 
         # Step 1: Start async search and get initial status using the general VQL function
         return self.search_by_vql(vql, entity_type)
 
-    def search_by_issues(self, issue_type: IssueType = None, confidence_min: float = 0.8, confidence_max: float = 1.0, search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF) -> pd.DataFrame:
+    def search_by_issues(
+        self, issue_type: IssueType = None, entity_type: str = "IMAGES", confidence_min: float = 0.8, confidence_max: float = 1.0, search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF
+    ) -> pd.DataFrame:
         """
         Search dataset by issues using VQL and return as DataFrame.
 
         Args:
             issue_type (IssueType): Issue type to search for (e.g., IssueType.BLUR, IssueType.DARK, IssueType.OUTLIERS)
+            entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
             confidence_min (float): Minimum confidence threshold (default: 0.8)
             confidence_max (float): Maximum confidence threshold (default: 1.0)
             search_operator (SearchOperator): Search operator for issues (default: SearchOperator.IS_ONE_OF)
@@ -395,7 +395,7 @@ class Dataset:
             pd.DataFrame: DataFrame containing the search results
 
         Examples:
-            df = dataset.search_by_issues(issue_type=IssueType.BLUR, search_operator=SearchOperator.IS_ONE_OF)
+            df = dataset.search_by_issues(issue_type=IssueType.BLUR, entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF)
         """
         if not issue_type:
             raise ValueError("issue_type must be provided")
@@ -420,7 +420,7 @@ class Dataset:
         vql = [{"issues": {"op": "issue", "value": issue_type_str, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": "in"}}]
 
         # Call the general VQL search function
-        return self.search_by_vql(vql, "IMAGES")
+        return self.search_by_vql(vql, entity_type)
 
     def search_by_vql(self, vql: List[dict], entity_type: str = "IMAGES") -> pd.DataFrame:
         """
@@ -642,3 +642,10 @@ class Dataset:
         except Exception as e:
             self.logger.error(f"Image similarity search failed: {str(e)}")
             raise
+
+
+__all__ = [
+    "Dataset",
+    "SearchOperator",
+    "IssueType",
+]
