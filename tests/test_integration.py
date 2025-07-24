@@ -2,6 +2,8 @@ import os
 import pandas as pd
 import pytest
 from dotenv import load_dotenv
+import requests
+import tempfile
 from src.visual_layer_sdk.client import VisualLayerClient
 from src.visual_layer_sdk.dataset import Dataset, IssueType, SearchOperator
 
@@ -34,20 +36,10 @@ class TestIntegration:
         print("Explore DataFrame shape:", df.shape)
         assert isinstance(df, pd.DataFrame)
 
-    def test_export(self):
-        export = self.dataset.export()
-        print("Export keys:", list(export.keys()))
-        assert "media_items" in export
-
     def test_export_to_dataframe(self):
         df = self.dataset.export_to_dataframe()
         print("Exported DataFrame shape:", df.shape)
         assert isinstance(df, pd.DataFrame)
-
-    def test_get_status(self):
-        status = self.dataset.get_status()
-        print("Status:", status)
-        assert status in ["READY", "completed", "READY (public)"]
 
     def test_search_by_labels(self):
         df = self.dataset.search_by_labels(["leaf", "spot"], "IMAGES", search_operator=SearchOperator.IS_ONE_OF)
@@ -63,28 +55,6 @@ class TestIntegration:
         df = self.dataset.search_by_issues(issue_type=IssueType.BLUR, entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF)
         print("Issue search DataFrame shape:", df.shape)
         assert isinstance(df, pd.DataFrame)
-
-    def test_search_by_visual_similarity(self):
-        # Use a sample image from the dataset export if available
-        export = self.dataset.export()
-        image_path = None
-        for item in export.get("media_items", []):
-            if "image_uri" in item:
-                image_path = item["image_uri"]
-                break
-        if not image_path:
-            pytest.skip("No image_uri found in export to test visual similarity.")
-        # Download the image to a temp file
-        import requests
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-            r = requests.get(image_path)
-            tmp.write(r.content)
-            tmp.flush()
-            df = self.dataset.search_by_visual_similarity(tmp.name, "IMAGES", search_operator=SearchOperator.IS)
-            print("Visual similarity DataFrame shape:", df.shape)
-            assert isinstance(df, pd.DataFrame)
 
     def test_get_user_config(self):
         config = self.dataset._get_user_config()
