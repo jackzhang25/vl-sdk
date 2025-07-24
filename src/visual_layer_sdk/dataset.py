@@ -3,6 +3,7 @@ from enum import Enum
 from typing import List
 
 import pandas as pd
+from typeguard import typechecked
 
 from .logger import get_logger
 
@@ -83,6 +84,7 @@ class Dataset:
         """String representation of the dataset with its details"""
         return self.__str__()
 
+    @typechecked
     def get_stats(self) -> dict:
         """Get statistics for this dataset"""
         response = self.client.session.get(
@@ -92,6 +94,7 @@ class Dataset:
         response.raise_for_status()
         return response.json()
 
+    @typechecked
     def get_details(self) -> dict:
         """Get details for this dataset"""
         response = self.client.session.get(
@@ -124,6 +127,7 @@ class Dataset:
 
         return filtered_details
 
+    @typechecked
     def explore(self) -> pd.DataFrame:
         """Explore this dataset and return previews as a DataFrame"""
         response = self.client.session.get(
@@ -142,6 +146,7 @@ class Dataset:
         else:
             return pd.DataFrame()  # Return empty DataFrame if no previews found
 
+    @typechecked
     def delete(self) -> dict:
         """Delete this dataset"""
         response = self.client.session.delete(
@@ -151,6 +156,7 @@ class Dataset:
         response.raise_for_status()
         return response.json()
 
+    @typechecked
     def get_image_info(self, image_id) -> list:
         response = self.client.session.get(
             f"{self.base_url}/image/{image_id}",
@@ -160,6 +166,7 @@ class Dataset:
         return response.json()
 
     # include image_uri in export
+    @typechecked
     def export(self) -> dict:
         """Export this dataset in JSON format"""
         # Check if dataset is ready before exporting
@@ -174,6 +181,7 @@ class Dataset:
         response.raise_for_status()
         return response.json()
 
+    @typechecked
     def export_to_dataframe(self) -> pd.DataFrame:
         """
         Export this dataset and convert media_items to a DataFrame.
@@ -214,9 +222,11 @@ class Dataset:
             self.logger.export_failed(self.dataset_id, str(e))
             return pd.DataFrame()
 
+    @typechecked
     def get_status(self) -> dict:
         return self.get_details()["status"]
 
+    @typechecked
     def search_by_visual_similarity(self, image_path, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS, threshold: int = 0) -> pd.DataFrame:
         """
         Search dataset by visual similarity for one or more images asynchronously, poll until export is ready, download the results, and return as a DataFrame.
@@ -270,7 +280,8 @@ class Dataset:
         # Step 1: Start async search and get initial status using the general VQL function
         return self.search_by_vql(vql, entity_type)
 
-    def search_by_captions(self, captions: List[str], entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS) -> pd.DataFrame:
+    @typechecked
+    def search_by_captions(self, captions: List[str] | str, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS) -> pd.DataFrame:
         """
         Search dataset by captions using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame.
 
@@ -314,7 +325,8 @@ class Dataset:
         # Step 1: Start async search and get initial status using the general VQL function
         return self.search_by_vql(vql, entity_type)
 
-    def search_by_labels(self, labels: List[str], entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF) -> pd.DataFrame:
+    @typechecked
+    def search_by_labels(self, labels: List[str] | str, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF) -> pd.DataFrame:
         """
         Search dataset by labels using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame.
 
@@ -356,14 +368,20 @@ class Dataset:
         # Step 1: Start async search and get initial status using the general VQL function
         return self.search_by_vql(vql, entity_type)
 
+    @typechecked
     def search_by_issues(
-        self, issue_type: IssueType = None, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF, confidence_min: float = 0.8, confidence_max: float = 1.0
+        self,
+        issue_type: "IssueType | List[IssueType]" = None,
+        entity_type: str = "IMAGES",
+        search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF,
+        confidence_min: float = 0.8,
+        confidence_max: float = 1.0,
     ) -> pd.DataFrame:
         """
-        Search dataset by issues using VQL and return as DataFrame.
+        Search dataset by one or more issues using VQL and return as DataFrame.
 
         Args:
-            issue_type (IssueType): Issue type to search for (e.g., IssueType.BLUR, IssueType.DARK, IssueType.OUTLIERS)
+            issue_type (IssueType or List[IssueType]): Issue type(s) to search for (e.g., IssueType.BLUR, IssueType.DARK, IssueType.OUTLIERS)
             entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
             search_operator (SearchOperator): Search operator for issues (default: SearchOperator.IS_ONE_OF)
             confidence_min (float): Minimum confidence threshold (default: 0.8)
@@ -373,33 +391,48 @@ class Dataset:
             pd.DataFrame: DataFrame containing the search results
 
         Examples:
-            df = dataset.search_by_issues(issue_type=IssueType.BLUR, entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, confidence_min=0.8, confidence_max=1.0)
+            df = dataset.search_by_issues(issue_type=[IssueType.BLUR, IssueType.OUTLIERS], entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, confidence_min=0.5, confidence_max=1.0)
         """
+        mode = "in"
         if not issue_type:
             raise ValueError("issue_type must be provided")
-
-        # Convert enum to string value
-        issue_type_str = issue_type.value
-
-        # Validate issue types against allowed names
-        if issue_type_str not in ALLOWED_ISSUE_NAMES:
-            raise ValueError(f"Invalid issue type '{issue_type_str}'. Allowed types: {list(ALLOWED_ISSUE_NAMES)}")
 
         if isinstance(search_operator, str):
             try:
                 search_operator = SearchOperator(search_operator)
             except ValueError:
-                raise ValueError(f"Invalid search_operator for issues: {search_operator}")
+                self.logger.warning(f"Invalid search_operator for issues: {search_operator}")
+                return pd.DataFrame()
+        if search_operator == SearchOperator.IS_ONE_OF:
+            mode = "in"
+        elif search_operator == SearchOperator.IS_NOT_ONE_OF:
+            mode = "out"
+        elif search_operator == SearchOperator.IS_NOT and len(issue_type) == 1:
+            mode = "out"
+        elif search_operator == SearchOperator.IS and len(issue_type) == 1:
+            mode = "in"
+        else:
+            self.logger.warning(f"Search operator {search_operator} is not implemented for issues yet.")
+            return pd.DataFrame()
 
-        if search_operator != SearchOperator.IS_ONE_OF:
-            raise NotImplementedError(f"Search operator {search_operator} is not implemented for issues yet.")
+        # Accept a single IssueType or a list of IssueTypes
+        if isinstance(issue_type, list):
+            issue_types = issue_type
+        else:
+            issue_types = [issue_type]
 
-        # Build VQL for issue search (keep op hardcoded as 'issue')
-        vql = [{"issues": {"op": "issue", "value": issue_type_str, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": "in"}}]
+        vql = []
+        for it in issue_types:
+            issue_type_str = it.value
+            if issue_type_str not in ALLOWED_ISSUE_NAMES:
+                self.logger.warning(f"Invalid issue type '{issue_type_str}'. Allowed types: {list(ALLOWED_ISSUE_NAMES)}")
+                return pd.DataFrame()
+            vql.append({"issues": {"op": "issue", "value": issue_type_str, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": mode}})
 
         # Call the general VQL search function
         return self.search_by_vql(vql, entity_type)
 
+    @typechecked
     def search_by_vql(self, vql: List[dict], entity_type: str = "IMAGES") -> pd.DataFrame:
         """
         Search dataset using custom VQL (Visual Query Language) asynchronously, poll until export is ready, download the results, and return as a DataFrame.

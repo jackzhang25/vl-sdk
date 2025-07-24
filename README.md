@@ -248,23 +248,28 @@ df = dataset.search_by_captions(["cat", "sitting", "outdoors"], "IMAGES")
 
 **Returns:** DataFrame containing the search results, or empty if not ready or no matches found.
 
-##### `search_by_issues(issue_type: IssueType, entity_type: str = "IMAGES", search_operator: SearchOperator = SearchOperator.IS_ONE_OF, confidence_min: float = 0.8, confidence_max: float = 1.0) -> pd.DataFrame`
-Search the dataset by issues using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame.
+##### `search_by_issues(issue_type: IssueType or List[IssueType], entity_type: str = "IMAGES", search_operator: SearchOperator = SearchOperator.IS_ONE_OF, confidence_min: float = 0.8, confidence_max: float = 1.0) -> pd.DataFrame`
+Search the dataset by one or more issues using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame. If a list of issue types is provided, the VQL will include a filter for each issue type.
 
 ```python
-from visual_layer_sdk.dataset import IssueType
+from visual_layer_sdk.dataset import IssueType, SearchOperator
 
-df = dataset.search_by_issues(issue_type=IssueType.OUTLIERS, entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, confidence_min=0.8, confidence_max=1.0)
-df = dataset.search_by_issues(issue_type=IssueType.BLUR, entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, confidence_min=0.9, confidence_max=1.0)
+df = dataset.search_by_issues(
+    issue_type=[IssueType.OUTLIERS, IssueType.MISLABELS],
+    entity_type="IMAGES",
+    search_operator=SearchOperator.IS_ONE_OF,
+    confidence_min=0.8,
+    confidence_max=1.0
+)
 ```
 
-- `issue_type` (IssueType): Issue type to search for (e.g., IssueType.BLUR, IssueType.DARK, IssueType.OUTLIERS, IssueType.DUPLICATES, IssueType.MISLABELS, IssueType.BRIGHT, IssueType.NORMAL, IssueType.LABEL_OUTLIER)
+- `issue_type` (IssueType or List[IssueType]): Issue type(s) to search for (e.g., IssueType.BLUR, IssueType.DARK, IssueType.OUTLIERS, ...)
 - `entity_type` (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
 - `search_operator` (SearchOperator): Search operator for issues (default: SearchOperator.IS_ONE_OF)
 - `confidence_min` (float): Minimum confidence threshold (default: 0.8)
 - `confidence_max` (float): Maximum confidence threshold (default: 1.0)
 
-**Returns:** DataFrame containing the search results, or empty if not ready or no matches found.
+**Returns:** DataFrame containing the search results for all specified issues.
 
 ##### `search_by_visual_similarity(image_path: str or List[str], entity_type: str = "IMAGES", search_operator: SearchOperator = SearchOperator.IS, threshold: int = 0) -> pd.DataFrame`
 Search the dataset by visual similarity using one or more local image files as anchors, poll until export is ready, download the results, and return as a DataFrame. If a list of image paths is provided, results are combined and duplicates (by `media_id`) are removed.
@@ -306,20 +311,6 @@ df = dataset.search_by_vql(vql)
 - `entity_type` (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
 
 **Returns:** DataFrame containing the search results, or empty if not ready or no matches found.
-
-##### `search_by_image_file(image_path: str, allow_deleted: bool = False) -> dict`
-Upload an image file and get the anchor media ID for similarity search.
-
-```python
-result = dataset.search_by_image_file("/path/to/image.jpg")
-media_id = result["anchor_media_id"]
-anchor_type = result["anchor_type"]
-```
-
-- `image_path` (str): Path to the image file (JPEG, PNG, etc.)
-- `allow_deleted` (bool): Whether to include deleted images in search (default: False)
-
-**Returns:** Dictionary with `anchor_media_id` and `anchor_type`.
 
 ##### `IssueType` Enum
 The `issue_type` parameter uses the `IssueType` enum:
@@ -572,6 +563,55 @@ For Jupyter notebook support:
 ```bash
 pip install ipython
 ```
+
+## Search Operators: Details
+
+The following search operators can be used with labels, issues, and other searchable fields. Use the `SearchOperator` Enum to specify the operator in SDK methods:
+
+```python
+from visual_layer_sdk.dataset import SearchOperator
+
+# Example usage:
+df = dataset.search_by_labels(["cat", "dog"], "IMAGES", search_operator=SearchOperator.IS)
+df = dataset.search_by_labels(["cat", "dog"], "IMAGES", search_operator=SearchOperator.IS_NOT)
+df = dataset.search_by_labels(["cat", "dog"], "IMAGES", search_operator=SearchOperator.IS_ONE_OF)
+df = dataset.search_by_labels(["cat", "dog"], "IMAGES", search_operator=SearchOperator.NOT_ONE_OF)
+```
+
+### SearchOperator Enum
+
+```python
+from enum import Enum
+
+class SearchOperator(Enum):
+    IS = "is"
+    IS_NOT = "is_not"
+    IS_ONE_OF = "one_of"
+    NOT_ONE_OF = "not_one_of"
+```
+
+### Operator Details
+
+| Operator         | Returns items that...                              |
+|-----------------|----------------------------------------------------|
+| IS              | Have all of the specified values                   |
+| IS_NOT          | Do not have all of the specified values together   |
+| IS_ONE_OF       | Have at least one of the specified values          |
+| NOT_ONE_OF      | Have none of the specified values                  |
+
+### Visual Examples (for labels)
+Suppose you have these images:
+- Image A: `["cat"]`
+- Image B: `["dog"]`
+- Image C: `["cat", "dog"]`
+- Image D: `["bird"]`
+
+| Operator   | ["cat", "dog"] | ["cat"] | ["dog"] | ["bird"] |
+|------------|:--------------:|:-------:|:-------:|:--------:|
+| IS         | ✅              | ❌      | ❌      | ❌       |
+| IS_NOT     | ❌              | ✅      | ✅      | ✅       |
+| IS_ONE_OF  | ✅              | ✅      | ✅      | ❌       |
+| NOT_ONE_OF | ❌              | ❌      | ❌      | ✅       |
 
 ## Complete Example
 

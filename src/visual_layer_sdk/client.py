@@ -364,14 +364,20 @@ def main():
     test_dataset = Dataset(client, test_dataset_id)
 
     # Manual test for search_by_visual_similarity with a list of image paths
-    print("\n🔍 Testing search_by_visual_similarity with multiple images:")
-    image_paths = ["/Users/Jack/Downloads/file/angular_leaf_spot_test.0.jpg", "/Users/Jack/Downloads/file/angular_leaf_spot_test.1.jpg"]
+
+    # Manual test for search_by_issues with multiple issue types
+    print("\n🔍 Testing search_by_issues with multiple issue types:")
+    from .dataset import IssueType, SearchOperator
+
+    issue_types = "healthy"
     try:
-        df_sim = test_dataset.search_by_visual_similarity(image_paths, "IMAGES")
-        print(f"Visual similarity DataFrame shape: {df_sim.shape}")
-        print(df_sim.head())
+        df_issues = test_dataset.search_by_captions(captions=issue_types, entity_type="IMAGES", search_operator=SearchOperator.IS_NOT)
+        print(f"Issue search DataFrame shape: {df_issues.shape}")
+        print(df_issues.head())
+        df_issues.to_csv("issue_search_results.csv", index=False)
+        print("Results saved to issue_search_results.csv")
     except Exception as e:
-        print(f"❌ Error in visual similarity search: {str(e)}")
+        print(f"❌ Error in issue search: {str(e)}")
 
 
 if __name__ == "__main__":
