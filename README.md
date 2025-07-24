@@ -266,19 +266,20 @@ df = dataset.search_by_issues(issue_type=IssueType.BLUR, entity_type="IMAGES", s
 
 **Returns:** DataFrame containing the search results, or empty if not ready or no matches found.
 
-##### `search_by_visual_similarity(image_path: str, threshold: int = 0, entity_type: str = "IMAGES") -> pd.DataFrame`
-Search the dataset by visual similarity using a local image file as anchor, poll until export is ready, download the results, and return as a DataFrame.
+##### `search_by_visual_similarity(image_path: str or List[str], entity_type: str = "IMAGES", search_operator: SearchOperator = SearchOperator.IS, threshold: int = 0) -> pd.DataFrame`
+Search the dataset by visual similarity using one or more local image files as anchors, poll until export is ready, download the results, and return as a DataFrame. If a list of image paths is provided, results are combined and duplicates (by `media_id`) are removed.
 
 ```python
-df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES")
-df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", threshold=0.5)
+df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS)
+df = dataset.search_by_visual_similarity(image_path=["/path/to/img1.jpg", "/path/to/img2.jpg"], entity_type="IMAGES", search_operator=SearchOperator.IS)
 ```
 
-- `image_path` (str): Path to the image file to use as anchor
-- `threshold` (int): Similarity threshold as string (default: 0)
+- `image_path` (str or List[str]): Path(s) to the image file(s) to use as anchor(s)
 - `entity_type` (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
+- `search_operator` (SearchOperator): Search operator for visual similarity (default: SearchOperator.IS)
+- `threshold` (int): Similarity threshold as string (default: 0)
 
-**Returns:** DataFrame containing the search results, or empty if not ready or no matches found.
+**Returns:** DataFrame containing the combined search results, with duplicates (by `media_id`) removed.
 
 ##### `search_by_vql(vql: List[dict], entity_type: str = "IMAGES") -> pd.DataFrame`
 Search the dataset using custom VQL (Visual Query Language) asynchronously, poll until export is ready, download the results, and return as a DataFrame.

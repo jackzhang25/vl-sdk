@@ -363,7 +363,15 @@ def main():
     test_dataset_id = "bc41491e-78ae-11ef-ba4b-8a774758b536"
     test_dataset = Dataset(client, test_dataset_id)
 
-    print(test_dataset.search_by_captions(["healthy"], search_operator=SearchOperator.IS_ONE_OF))
+    # Manual test for search_by_visual_similarity with a list of image paths
+    print("\n🔍 Testing search_by_visual_similarity with multiple images:")
+    image_paths = ["/Users/Jack/Downloads/file/angular_leaf_spot_test.0.jpg", "/Users/Jack/Downloads/file/angular_leaf_spot_test.1.jpg"]
+    try:
+        df_sim = test_dataset.search_by_visual_similarity(image_paths, "IMAGES")
+        print(f"Visual similarity DataFrame shape: {df_sim.shape}")
+        print(df_sim.head())
+    except Exception as e:
+        print(f"❌ Error in visual similarity search: {str(e)}")
 
 
 if __name__ == "__main__":

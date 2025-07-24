@@ -217,24 +217,25 @@ class Dataset:
     def get_status(self) -> dict:
         return self.get_details()["status"]
 
-    def search_by_visual_similarity(self, image_path: str, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS, threshold: int = 0) -> pd.DataFrame:
+    def search_by_visual_similarity(self, image_path, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS, threshold: int = 0) -> pd.DataFrame:
         """
-        Search dataset by visual similarity asynchronously, poll until export is ready, download the results, and return as a DataFrame.
+        Search dataset by visual similarity for one or more images asynchronously, poll until export is ready, download the results, and return as a DataFrame.
 
         Args:
-            image_path (str): Path to the image file to use as anchor
+            image_path (str or List[str]): Path(s) to the image file(s) to use as anchor(s)
             entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
             search_operator (SearchOperator): Search operator for visual similarity (default: SearchOperator.IS)
             threshold (int): Similarity threshold as string (default: 0)
 
         Returns:
-            pd.DataFrame: DataFrame containing the search results, or empty if not ready
+            pd.DataFrame: DataFrame containing the combined search results, with duplicates removed
 
         Raises:
             ValueError: If image_path is not provided
 
         Examples:
             df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS, threshold=0)
+            df = dataset.search_by_visual_similarity(image_path=["/path/to/img1.jpg", "/path/to/img2.jpg"], entity_type="IMAGES", search_operator=SearchOperator.IS)
         """
         if isinstance(search_operator, str):
             try:
@@ -246,6 +247,18 @@ class Dataset:
             self.logger.warning(f"Search operator {search_operator} is not implemented for visual similarity.")
             return pd.DataFrame()
 
+        if isinstance(image_path, list):
+            dfs = []
+            for path in image_path:
+                df = self.search_by_visual_similarity(path, entity_type, search_operator, threshold)
+                if df is not None and not df.empty:
+                    dfs.append(df)
+            if dfs:
+                combined = pd.concat(dfs, ignore_index=True).drop_duplicates(subset=["media_id"])
+                return combined
+            else:
+                return pd.DataFrame()
+        # Single image path (original behavior)
         # Get media_id from image file upload
         upload_result = self._search_by_image_file(image_path=image_path)
         media_id = upload_result.get("anchor_media_id")
