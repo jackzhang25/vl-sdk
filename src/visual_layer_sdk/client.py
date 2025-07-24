@@ -365,7 +365,7 @@ def main():
 
     # Manual test for search_by_issues with multiple issue types
     print("\n🔍 Testing search_by_issues with multiple issue types:")
-    from .dataset import IssueType, SearchOperator
+    from .dataset import SearchOperator
 
     issue_types = "healthy"
     try:
