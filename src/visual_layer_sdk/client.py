@@ -7,7 +7,6 @@ import requests
 from dotenv import load_dotenv
 
 from .dataset import Dataset
-from .dataset import SearchOperator
 from .logger import get_logger
 
 
@@ -361,7 +360,6 @@ def main():
 
     # Test dataset ID
     test_dataset_id = "bc41491e-78ae-11ef-ba4b-8a774758b536"
-    test_dataset = Dataset(client, test_dataset_id)
 
     # Manual test for search_by_visual_similarity with a list of image paths
 
@@ -371,7 +369,7 @@ def main():
 
     issue_types = "healthy"
     try:
-        df_issues = test_dataset.search_by_captions(captions=issue_types, entity_type="IMAGES", search_operator=SearchOperator.IS_NOT)
+        df_issues = client.get_dataset_object(test_dataset_id).search_by_captions(captions=issue_types, entity_type="IMAGES", search_operator=SearchOperator.IS_NOT)
         print(f"Issue search DataFrame shape: {df_issues.shape}")
         print(df_issues.head())
         df_issues.to_csv("issue_search_results.csv", index=False)

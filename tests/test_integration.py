@@ -1,7 +1,7 @@
 import os
+import pandas as pd
 import pytest
 from dotenv import load_dotenv
-import pandas as pd
 from src.visual_layer_sdk.client import VisualLayerClient
 from src.visual_layer_sdk.dataset import Dataset, IssueType, SearchOperator
 
@@ -75,7 +75,8 @@ class TestIntegration:
         if not image_path:
             pytest.skip("No image_uri found in export to test visual similarity.")
         # Download the image to a temp file
-        import requests, tempfile
+        import requests
+        import tempfile
 
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             r = requests.get(image_path)

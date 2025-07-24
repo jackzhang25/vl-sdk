@@ -5,13 +5,14 @@ A Python SDK for interacting with the Visual Layer API.
 """
 
 from .client import VisualLayerClient
-from .dataset import Dataset, SearchOperator, IssueType
+from .dataset import Dataset, IssueType, SearchOperator
 from .exceptions import VisualLayerException
 
-__version__ = "0.1.16"
+__version__ = "0.1.17"
 __all__ = [
     "VisualLayerClient",
     "Dataset",
     "SearchOperator",
     "IssueType",
+    "VisualLayerException",
 ]
