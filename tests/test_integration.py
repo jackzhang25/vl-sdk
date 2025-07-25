@@ -2,8 +2,8 @@ import os
 import pandas as pd
 import pytest
 from dotenv import load_dotenv
-from src.visual_layer_sdk.client import VisualLayerClient
 from src.visual_layer_sdk.dataset import Dataset, IssueType, SearchOperator
+from src.visual_layer_sdk.client import VisualLayerClient
 
 load_dotenv()
 
