@@ -11,12 +11,31 @@ from .logger import get_logger
 
 
 class VisualLayerClient:
-    def __init__(self, api_key: str, api_secret: str):
-        self.base_url = "https://app.visual-layer.com/api/v1"
+    def __init__(self, api_key: str, api_secret: str, environment: str = "production"):
+        """
+        Initialize the VisualLayerClient.
+
+        Args:
+            api_key (str): Your Visual Layer API key
+            api_secret (str): Your Visual Layer API secret
+            environment (str): 'production' (default) or 'staging'. Determines which API base URL to use.
+        """
+        if environment == "production":
+            self.base_url = "https://app.visual-layer.com/api/v1"
+        elif environment == "staging":
+            self.base_url = "https://app.staging-visual-layer.link/api/v1"
+        else:
+            raise ValueError(f"Unknown environment: {environment}. Use 'production' or 'staging'.")
         self.api_key = api_key
         self.api_secret = api_secret
         self.session = requests.Session()
         self.logger = get_logger()
+        import logging
+
+        sdk_logger = logging.getLogger("visual_layer_sdk")
+        sdk_logger.setLevel(logging.WARNING)
+        for handler in sdk_logger.handlers:
+            handler.setLevel(logging.WARNING)
 
     def _generate_jwt(self) -> str:
         jwt_algorithm = "HS256"
@@ -341,22 +360,19 @@ def main():
 
     # Test dataset ID
     test_dataset_id = "bc41491e-78ae-11ef-ba4b-8a774758b536"
-    test_dataset = Dataset(client, test_dataset_id)
+    # Manual test for search_by_visual_similarity with a list of image paths
 
-    # Manual test for search_by_labels
-    print("\n🔍 Testing search_by_labels:")
-    labels = "healthy"
+    # Manual test for search_by_issues with multiple issue types
+    print("\n🔍 Testing search_by_issues with multiple issue types:")
+    from .dataset import SearchOperator
+
+    issue_types = "healthy"
     try:
-        df_labels = test_dataset.search_by_labels(labels)
-        print(f"✅ Found {len(df_labels)} images matching labels")
-        if len(df_labels) > 0:
-            print("Sample results:")
-            print(df_labels.head(3))
-            csv_filename = "label_search_results.csv"
-            df_labels.to_csv(csv_filename, index=False)
-            print(f"📄 Results saved to: {csv_filename}")
-        else:
-            print("❌ No images matching labels found")
+        df_issues = client.get_dataset_object(test_dataset_id).search_by_captions(captions=issue_types, entity_type="IMAGES", search_operator=SearchOperator.IS_NOT)
+        print(f"Issue search DataFrame shape: {df_issues.shape}")
+        print(df_issues.head())
+        df_issues.to_csv("issue_search_results.csv", index=False)
+        print("Results saved to issue_search_results.csv")
     except Exception as e:
         print(f"❌ Error in label search: {str(e)}")
 
