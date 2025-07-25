@@ -360,21 +360,54 @@ def main():
 
     # Test dataset ID
     test_dataset_id = "bc41491e-78ae-11ef-ba4b-8a774758b536"
-    # Manual test for search_by_visual_similarity with a list of image paths
 
-    # Manual test for search_by_issues with multiple issue types
-    print("\n🔍 Testing search_by_issues with multiple issue types:")
-    from .dataset import SearchOperator
+    # Manual test for search_by_visual_similarity with multiple images
+    print("\n🔍 Testing search_by_visual_similarity with multiple images:")
+    from .dataset import SearchOperator, IssueType
 
-    issue_types = "healthy"
     try:
-        df_issues = client.get_dataset_object(test_dataset_id).search_by_captions(captions=issue_types, entity_type="IMAGES", search_operator=SearchOperator.IS_NOT)
-        print(f"Issue search DataFrame shape: {df_issues.shape}")
-        print(df_issues.head())
-        df_issues.to_csv("issue_search_results.csv", index=False)
-        print("Results saved to issue_search_results.csv")
+        # Test with single image
+        print("\n🔍 Testing with single image:")
+        df_single = client.get_dataset_object(test_dataset_id).search_by_visual_similarity(image_path="/Users/Jack/Downloads/file/angular_leaf_spot_test.0.jpg")
+        print(f"Single image search results: {len(df_single)} images")
+
+        # Test with second single image
+        print("\n🔍 Testing with second single image:")
+        df_single2 = client.get_dataset_object(test_dataset_id).search_by_visual_similarity(image_path="/Users/Jack/Downloads/file/angular_leaf_spot_test.1.jpg")
+        print(f"Second single image search results: {len(df_single2)} images")
+
+        # Test with both images (should combine results and remove duplicates)
+        print("\n🔍 Testing with both images:")
+        df_both = client.get_dataset_object(test_dataset_id).search_by_visual_similarity(
+            image_path=["/Users/Jack/Downloads/file/angular_leaf_spot_test.0.jpg", "/Users/Jack/Downloads/file/angular_leaf_spot_test.1.jpg"]
+        )
+        print(f"Both images search results: {len(df_both)} images")
+
+        # Test with duplicate images (should be same as single)
+        print("\n🔍 Testing with duplicate images:")
+        df_duplicate = client.get_dataset_object(test_dataset_id).search_by_visual_similarity(
+            image_path=["/Users/Jack/Downloads/file/angular_leaf_spot_test.0.jpg", "/Users/Jack/Downloads/file/angular_leaf_spot_test.0.jpg"]
+        )
+        print(f"Duplicate images search results: {len(df_duplicate)} images")
+
+        # Calculate expected results
+        print(f"\n📊 Analysis:")
+        print(f"Single image 1 results: {len(df_single)}")
+        print(f"Single image 2 results: {len(df_single2)}")
+        print(f"Combined results: {len(df_both)}")
+        print(f"Duplicate results: {len(df_duplicate)}")
+
+        # Check if results are being combined properly
+        if len(df_both) > 0:
+            print(f"Expected combined results should be >= max of individual results")
+            print(f"Actual: {len(df_both)}, Expected >= {max(len(df_single), len(df_single2))}")
+
+            # Save results for inspection
+            df_both.to_csv("visual_similarity_results.csv", index=False)
+            print("Results saved to visual_similarity_results.csv")
+
     except Exception as e:
-        print(f"❌ Error in label search: {str(e)}")
+        print(f"❌ Error in visual similarity search: {str(e)}")
 
 
 if __name__ == "__main__":

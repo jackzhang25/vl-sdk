@@ -223,18 +223,18 @@ class Dataset:
             return pd.DataFrame()
 
     @typechecked
-    def get_status(self) -> dict:
+    def get_status(self) -> str:
         return self.get_details()["status"]
 
     @typechecked
-    def search_by_visual_similarity(self, image_path, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS, threshold: int = 0) -> pd.DataFrame:
+    def search_by_visual_similarity(self, image_path, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF, threshold: int = 0) -> pd.DataFrame:
         """
         Search dataset by visual similarity for one or more images asynchronously, poll until export is ready, download the results, and return as a DataFrame.
 
         Args:
             image_path (str or List[str]): Path(s) to the image file(s) to use as anchor(s)
             entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
-            search_operator (SearchOperator): Search operator for visual similarity (default: SearchOperator.IS)
+            search_operator (SearchOperator): Search operator for visual similarity (default: SearchOperator.IS_ONE_OF)
             threshold (int): Similarity threshold as string (default: 0)
 
         Returns:
@@ -244,8 +244,8 @@ class Dataset:
             ValueError: If image_path is not provided
 
         Examples:
-            df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS, threshold=0)
-            df = dataset.search_by_visual_similarity(image_path=["/path/to/img1.jpg", "/path/to/img2.jpg"], entity_type="IMAGES", search_operator=SearchOperator.IS)
+            df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, threshold=0)
+            df = dataset.search_by_visual_similarity(image_path=["/path/to/img1.jpg", "/path/to/img2.jpg"], entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF)
         """
         if isinstance(search_operator, str):
             try:
@@ -253,7 +253,7 @@ class Dataset:
             except ValueError:
                 self.logger.warning(f"Invalid search_operator for visual similarity: {search_operator}")
                 return pd.DataFrame()
-        if search_operator != SearchOperator.IS:
+        if search_operator != SearchOperator.IS_ONE_OF:
             self.logger.warning(f"Search operator {search_operator} is not implemented for visual similarity.")
             return pd.DataFrame()
 
@@ -373,7 +373,7 @@ class Dataset:
         self,
         issue_type: "IssueType | List[IssueType]" = None,
         entity_type: str = "IMAGES",
-        search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF,
+        search_operator: "SearchOperator" = SearchOperator.IS,
         confidence_min: float = 0.8,
         confidence_max: float = 1.0,
     ) -> pd.DataFrame:
@@ -383,7 +383,7 @@ class Dataset:
         Args:
             issue_type (IssueType or List[IssueType]): Issue type(s) to search for (e.g., IssueType.BLUR, IssueType.DARK, IssueType.OUTLIERS)
             entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
-            search_operator (SearchOperator): Search operator for issues (default: SearchOperator.IS_ONE_OF)
+            search_operator (SearchOperator): Search operator for issues (default: SearchOperator.IS)
             confidence_min (float): Minimum confidence threshold (default: 0.8)
             confidence_max (float): Maximum confidence threshold (default: 1.0)
 
@@ -391,7 +391,7 @@ class Dataset:
             pd.DataFrame: DataFrame containing the search results
 
         Examples:
-            df = dataset.search_by_issues(issue_type=[IssueType.BLUR, IssueType.OUTLIERS], entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, confidence_min=0.5, confidence_max=1.0)
+            df = dataset.search_by_issues(issue_type=[IssueType.BLUR, IssueType.OUTLIERS], entity_type="IMAGES", search_operator=SearchOperator.IS, confidence_min=0.5, confidence_max=1.0)
         """
         mode = "in"
         if not issue_type:
@@ -403,13 +403,15 @@ class Dataset:
             except ValueError:
                 self.logger.warning(f"Invalid search_operator for issues: {search_operator}")
                 return pd.DataFrame()
-        if search_operator == SearchOperator.IS_ONE_OF:
-            mode = "in"
-        elif search_operator == SearchOperator.IS_NOT_ONE_OF:
+
+        if not isinstance(issue_type, list):
+            issue_type = [issue_type]
+
+        if search_operator == SearchOperator.IS_NOT_ONE_OF:
             mode = "out"
         elif search_operator == SearchOperator.IS_NOT and len(issue_type) == 1:
             mode = "out"
-        elif search_operator == SearchOperator.IS and len(issue_type) == 1:
+        elif search_operator == SearchOperator.IS:
             mode = "in"
         else:
             self.logger.warning(f"Search operator {search_operator} is not implemented for issues yet.")
