@@ -363,7 +363,6 @@ def main():
 
     # Manual test for search_by_visual_similarity with multiple images
     print("\n🔍 Testing search_by_visual_similarity with multiple images:")
-    from .dataset import SearchOperator, IssueType
 
     try:
         # Test with single image
@@ -391,7 +390,7 @@ def main():
         print(f"Duplicate images search results: {len(df_duplicate)} images")
 
         # Calculate expected results
-        print(f"\n📊 Analysis:")
+        print("\n📊 Analysis:")
         print(f"Single image 1 results: {len(df_single)}")
         print(f"Single image 2 results: {len(df_single2)}")
         print(f"Combined results: {len(df_both)}")
@@ -399,7 +398,7 @@ def main():
 
         # Check if results are being combined properly
         if len(df_both) > 0:
-            print(f"Expected combined results should be >= max of individual results")
+            print("Expected combined results should be >= max of individual results")
             print(f"Actual: {len(df_both)}, Expected >= {max(len(df_single), len(df_single2))}")
 
             # Save results for inspection
