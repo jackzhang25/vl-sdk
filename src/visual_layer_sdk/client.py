@@ -360,7 +360,6 @@ def main():
 
     # Test dataset ID
     test_dataset_id = "bc41491e-78ae-11ef-ba4b-8a774758b536"
-
     # Manual test for search_by_visual_similarity with a list of image paths
 
     # Manual test for search_by_issues with multiple issue types
@@ -375,7 +374,7 @@ def main():
         df_issues.to_csv("issue_search_results.csv", index=False)
         print("Results saved to issue_search_results.csv")
     except Exception as e:
-        print(f"❌ Error in issue search: {str(e)}")
+        print(f"❌ Error in label search: {str(e)}")
 
 
 if __name__ == "__main__":
