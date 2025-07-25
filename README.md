@@ -271,17 +271,17 @@ df = dataset.search_by_issues(
 
 **Returns:** DataFrame containing the search results for all specified issues.
 
-##### `search_by_visual_similarity(image_path: str or List[str], entity_type: str = "IMAGES", search_operator: SearchOperator = SearchOperator.IS, threshold: int = 0) -> pd.DataFrame`
+##### `search_by_visual_similarity(image_path: str or List[str], entity_type: str = "IMAGES", search_operator: SearchOperator = SearchOperator.IS_ONE_OF, threshold: int = 0) -> pd.DataFrame`
 Search the dataset by visual similarity using one or more local image files as anchors, poll until export is ready, download the results, and return as a DataFrame. If a list of image paths is provided, results are combined and duplicates (by `media_id`) are removed.
 
 ```python
-df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS)
-df = dataset.search_by_visual_similarity(image_path=["/path/to/img1.jpg", "/path/to/img2.jpg"], entity_type="IMAGES", search_operator=SearchOperator.IS)
+df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF)
+df = dataset.search_by_visual_similarity(image_path=["/path/to/img1.jpg", "/path/to/img2.jpg"], entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF)
 ```
 
 - `image_path` (str or List[str]): Path(s) to the image file(s) to use as anchor(s)
 - `entity_type` (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
-- `search_operator` (SearchOperator): Search operator for visual similarity (default: SearchOperator.IS)
+- `search_operator` (SearchOperator): Search operator for visual similarity (default: SearchOperator.IS_ONE_OF)
 - `threshold` (int): Similarity threshold as string (default: 0)
 
 **Returns:** DataFrame containing the combined search results, with duplicates (by `media_id`) removed.
