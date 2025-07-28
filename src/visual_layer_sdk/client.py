@@ -361,52 +361,143 @@ def main():
     # Test dataset ID
     test_dataset_id = "bc41491e-78ae-11ef-ba4b-8a774758b536"
 
-    # Manual test for search_by_visual_similarity with multiple images
-    print("\n🔍 Testing search_by_visual_similarity with multiple images:")
+    # Comprehensive test for all operators across all search types
+    print("\n🔍 Testing ALL operators for ALL search types:")
 
     try:
-        # Test with single image
-        print("\n🔍 Testing with single image:")
-        df_single = client.get_dataset_object(test_dataset_id).search_by_visual_similarity(image_path="/Users/Jack/Downloads/file/angular_leaf_spot_test.0.jpg")
-        print(f"Single image search results: {len(df_single)} images")
+        from .dataset import IssueType, SearchOperator
 
-        # Test with second single image
-        print("\n🔍 Testing with second single image:")
-        df_single2 = client.get_dataset_object(test_dataset_id).search_by_visual_similarity(image_path="/Users/Jack/Downloads/file/angular_leaf_spot_test.1.jpg")
-        print(f"Second single image search results: {len(df_single2)} images")
+        dataset = client.get_dataset_object(test_dataset_id)
 
-        # Test with both images (should combine results and remove duplicates)
-        print("\n🔍 Testing with both images:")
-        df_both = client.get_dataset_object(test_dataset_id).search_by_visual_similarity(
-            image_path=["/Users/Jack/Downloads/file/angular_leaf_spot_test.0.jpg", "/Users/Jack/Downloads/file/angular_leaf_spot_test.1.jpg"]
-        )
-        print(f"Both images search results: {len(df_both)} images")
+        # Get total number of images in dataset
+        all_images = dataset.export_to_dataframe()
+        total_images = len(all_images)
+        print(f"\n📊 Total images in dataset: {total_images}")
 
-        # Test with duplicate images (should be same as single)
-        print("\n🔍 Testing with duplicate images:")
-        df_duplicate = client.get_dataset_object(test_dataset_id).search_by_visual_similarity(
-            image_path=["/Users/Jack/Downloads/file/angular_leaf_spot_test.0.jpg", "/Users/Jack/Downloads/file/angular_leaf_spot_test.0.jpg"]
-        )
-        print(f"Duplicate images search results: {len(df_duplicate)} images")
+        # Test data for each search type
+        test_captions = ["leaf", "spot"]
+        test_labels = ["plant", "disease"]
+        test_issues = [IssueType.OUTLIERS, IssueType.MISLABELS]
+        test_image_path = "/Users/Jack/Downloads/file/angular_leaf_spot_test.0.jpg"
 
-        # Calculate expected results
-        print("\n📊 Analysis:")
-        print(f"Single image 1 results: {len(df_single)}")
-        print(f"Single image 2 results: {len(df_single2)}")
-        print(f"Combined results: {len(df_both)}")
-        print(f"Duplicate results: {len(df_duplicate)}")
+        # Test all operators for CAPTION search
+        print("\n" + "=" * 60)
+        print("📝 CAPTION SEARCH TESTS")
+        print("=" * 60)
 
-        # Check if results are being combined properly
-        if len(df_both) > 0:
-            print("Expected combined results should be >= max of individual results")
-            print(f"Actual: {len(df_both)}, Expected >= {max(len(df_single), len(df_single2))}")
+        for operator in [SearchOperator.IS, SearchOperator.IS_NOT, SearchOperator.IS_ONE_OF, SearchOperator.IS_NOT_ONE_OF]:
+            try:
+                print(f"\n🔍 Testing {operator.value} for captions:")
+                result = dataset.search_by_captions(test_captions, search_operator=operator)
+                print(f"Results: {len(result)} images")
 
-            # Save results for inspection
-            df_both.to_csv("visual_similarity_results.csv", index=False)
-            print("Results saved to visual_similarity_results.csv")
+                # Verify logic for negative operators
+                if operator in [SearchOperator.IS_NOT, SearchOperator.IS_NOT_ONE_OF]:
+                    positive_operator = SearchOperator.IS if operator == SearchOperator.IS_NOT else SearchOperator.IS_ONE_OF
+                    positive_result = dataset.search_by_captions(test_captions, search_operator=positive_operator)
+                    expected_count = total_images - len(positive_result)
+                    print(f"Expected: {expected_count}, Actual: {len(result)}")
+                    print(f"Logic correct: {len(result) == expected_count}")
+
+                result.to_csv(f"caption_{operator.value}_results.csv", index=False)
+
+            except Exception as e:
+                print(f"❌ Error with {operator.value}: {str(e)}")
+
+        # Test all operators for LABEL search
+        print("\n" + "=" * 60)
+        print("🏷️ LABEL SEARCH TESTS")
+        print("=" * 60)
+
+        for operator in [SearchOperator.IS, SearchOperator.IS_NOT, SearchOperator.IS_ONE_OF, SearchOperator.IS_NOT_ONE_OF]:
+            try:
+                print(f"\n🔍 Testing {operator.value} for labels:")
+                result = dataset.search_by_labels(test_labels, search_operator=operator)
+                print(f"Results: {len(result)} images")
+
+                # Verify logic for negative operators
+                if operator in [SearchOperator.IS_NOT, SearchOperator.IS_NOT_ONE_OF]:
+                    positive_operator = SearchOperator.IS if operator == SearchOperator.IS_NOT else SearchOperator.IS_ONE_OF
+                    positive_result = dataset.search_by_labels(test_labels, search_operator=positive_operator)
+                    expected_count = total_images - len(positive_result)
+                    print(f"Expected: {expected_count}, Actual: {len(result)}")
+                    print(f"Logic correct: {len(result) == expected_count}")
+
+                result.to_csv(f"label_{operator.value}_results.csv", index=False)
+
+            except Exception as e:
+                print(f"❌ Error with {operator.value}: {str(e)}")
+
+        # Test all operators for ISSUE search
+        print("\n" + "=" * 60)
+        print("⚠️ ISSUE SEARCH TESTS")
+        print("=" * 60)
+
+        for operator in [SearchOperator.IS, SearchOperator.IS_NOT, SearchOperator.IS_ONE_OF, SearchOperator.IS_NOT_ONE_OF]:
+            try:
+                print(f"\n🔍 Testing {operator.value} for issues:")
+                result = dataset.search_by_issues(test_issues, search_operator=operator)
+                print(f"Results: {len(result)} images")
+
+                # Verify logic for negative operators
+                if operator in [SearchOperator.IS_NOT, SearchOperator.IS_NOT_ONE_OF]:
+                    positive_operator = SearchOperator.IS if operator == SearchOperator.IS_NOT else SearchOperator.IS_ONE_OF
+                    positive_result = dataset.search_by_issues(test_issues, search_operator=positive_operator)
+                    expected_count = total_images - len(positive_result)
+                    print(f"Expected: {expected_count}, Actual: {len(result)}")
+                    print(f"Logic correct: {len(result) == expected_count}")
+
+                result.to_csv(f"issue_{operator.value}_results.csv", index=False)
+
+            except Exception as e:
+                print(f"❌ Error with {operator.value}: {str(e)}")
+
+        # Test all operators for VISUAL SIMILARITY search
+        print("\n" + "=" * 60)
+        print("🖼️ VISUAL SIMILARITY SEARCH TESTS")
+        print("=" * 60)
+
+        # For visual similarity, we'll test with single and multiple images
+        test_images = [test_image_path]
+        if os.path.exists("/Users/Jack/Downloads/file/angular_leaf_spot_test.1.jpg"):
+            test_images.append("/Users/Jack/Downloads/file/angular_leaf_spot_test.1.jpg")
+
+        for operator in [SearchOperator.IS, SearchOperator.IS_NOT, SearchOperator.IS_ONE_OF, SearchOperator.IS_NOT_ONE_OF]:
+            try:
+                print(f"\n🔍 Testing {operator.value} for visual similarity:")
+
+                # Test with single image
+                if len(test_images) == 1:
+                    result = dataset.search_by_visual_similarity(test_images[0], search_operator=operator)
+                    print(f"Single image results: {len(result)} images")
+                else:
+                    # Test with multiple images for IS_ONE_OF and IS_NOT_ONE_OF
+                    if operator in [SearchOperator.IS_ONE_OF, SearchOperator.IS_NOT_ONE_OF]:
+                        result = dataset.search_by_visual_similarity(test_images, search_operator=operator)
+                        print(f"Multiple images results: {len(result)} images")
+                    else:
+                        # For IS and IS_NOT, use single image
+                        result = dataset.search_by_visual_similarity(test_images[0], search_operator=operator)
+                        print(f"Single image results: {len(result)} images")
+
+                result.to_csv(f"visual_similarity_{operator.value}_results.csv", index=False)
+
+            except Exception as e:
+                print(f"❌ Error with {operator.value}: {str(e)}")
+
+        # Summary
+        print("\n" + "=" * 60)
+        print("📊 SUMMARY")
+        print("=" * 60)
+        print("✅ All operators tested for all search types")
+        print("📁 Results saved to CSV files")
+        print("🔍 Check individual CSV files for detailed results")
 
     except Exception as e:
-        print(f"❌ Error in visual similarity search: {str(e)}")
+        print(f"❌ Error in comprehensive testing: {str(e)}")
+        import traceback
+
+        traceback.print_exc()
 
 
 if __name__ == "__main__":
