@@ -1,6 +1,7 @@
 import json
 from enum import Enum
 from typing import List
+import uuid
 
 import pandas as pd
 from typeguard import typechecked
@@ -24,6 +25,12 @@ class IssueType(Enum):
     BRIGHT = "bright"
     NORMAL = "normal"
     LABEL_OUTLIER = "label_outlier"
+
+
+class SemanticRelevance(Enum):
+    LOW_RELEVANCE = 0.9
+    MEDIUM_RELEVANCE = 0.8
+    HIGH_RELEVANCE = 0.7
 
 
 ISSUE_TYPE_MAPPING = {
@@ -277,7 +284,7 @@ class Dataset:
         if not media_id:
             raise ValueError("Failed to get anchor_media_id from image upload")
         # Form the VQL for visual similarity search
-        vql = [{"id": "similarity_search", "similarity": {"op": "upload", "value": media_id}}]
+        vql = [{"id": "similarity_search", "similarity": {"op": "upload", "value": media_id, "threshold": threshold}}]
 
         # Step 1: Start async search and get initial status using the general VQL function
         return self.search_by_vql(vql, entity_type)
@@ -566,6 +573,40 @@ class Dataset:
             vql.append({"issues": {"op": "issue", "value": issue_type_str, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": mode}})
 
         # Call the general VQL search function
+        return self.search_by_vql(vql, entity_type)
+
+    @typechecked
+    def search_by_semantic(self, text: str, entity_type: str = "IMAGES", relevance: "SemanticRelevance" = SemanticRelevance.MEDIUM_RELEVANCE) -> pd.DataFrame:
+        """
+        Search dataset by semantic similarity using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame.
+
+        Args:
+            text (str): Text string to search for semantic similarity
+            entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
+            relevance (SemanticRelevance): Relevance level for semantic search (default: MEDIUM_RELEVANCE)
+
+        Returns:
+            pd.DataFrame: DataFrame containing the search results, or empty if not ready
+
+        Examples:
+            df = dataset.search_by_semantic("people walking on the beach", "IMAGES", relevance=SemanticRelevance.HIGH_RELEVANCE)
+        """
+        # Check if semantic search is enabled in user config
+        user_config = self._get_user_config()
+        if not user_config.get("semantic_search", False):
+            self.logger.warning("Semantic search is not enabled for this dataset.")
+            return pd.DataFrame()
+
+        if not text or not isinstance(text, str):
+            raise ValueError("text must be a non-empty string")
+
+        # Get threshold value from the enum
+        threshold = relevance.value
+
+        # Form the VQL for semantic search
+        vql = [{"id": str(uuid.uuid4()), "text": {"op": "semantic", "value": text, "threshold": threshold}}]
+
+        # Step 1: Start async search and get initial status using the general VQL function
         return self.search_by_vql(vql, entity_type)
 
     @typechecked
@@ -866,15 +907,18 @@ class Dataset:
 
         labels_search = None
         captions_search = None
+        semantic_search = None
         features = full_response.get("features", [])
         for feature in features:
             if feature.get("feature_key") == "TEXTUAL_SEARCH_IMAGE":
                 options = feature.get("feature_options", {})
                 labels_search = options.get("labels_search")
                 captions_search = options.get("captions_search")
+                semantic_search = options.get("semantic_search")
                 break
 
         return {
             "labels_search": labels_search,
             "captions_search": captions_search,
+            "semantic_search": semantic_search,
         }

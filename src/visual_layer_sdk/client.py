@@ -11,21 +11,16 @@ from .logger import get_logger
 
 
 class VisualLayerClient:
-    def __init__(self, api_key: str, api_secret: str, environment: str = "production"):
+    def __init__(self, api_key: str, api_secret: str, url: str = "https://app.visual-layer.com/api/v1"):
         """
         Initialize the VisualLayerClient.
 
         Args:
             api_key (str): Your Visual Layer API key
             api_secret (str): Your Visual Layer API secret
-            environment (str): 'production' (default) or 'staging'. Determines which API base URL to use.
+            url (str): API base URL. Defaults to production URL.
         """
-        if environment == "production":
-            self.base_url = "https://app.visual-layer.com/api/v1"
-        elif environment == "staging":
-            self.base_url = "https://app.staging-visual-layer.link/api/v1"
-        else:
-            raise ValueError(f"Unknown environment: {environment}. Use 'production' or 'staging'.")
+        self.base_url = url
         self.api_key = api_key
         self.api_secret = api_secret
         self.session = requests.Session()
@@ -36,6 +31,14 @@ class VisualLayerClient:
         sdk_logger.setLevel(logging.WARNING)
         for handler in sdk_logger.handlers:
             handler.setLevel(logging.WARNING)
+
+        # Run healthcheck to validate the URL
+        try:
+            self.healthcheck()
+        except Exception as e:
+            print(f"Invalid URL: {url}")
+            print(f"Error: {str(e)}")
+            raise ValueError(f"Invalid URL: {url}")
 
     def _generate_jwt(self) -> str:
         jwt_algorithm = "HS256"
@@ -357,15 +360,15 @@ def main():
 
     print("🚀 Initializing Visual Layer client...")
     client = VisualLayerClient(API_KEY, API_SECRET)
-
+    client2 = VisualLayerClient(API_KEY, API_SECRET, "https://app.staging-visual-layer.link/api/v1")
     # Test dataset ID
-    test_dataset_id = "bc41491e-78ae-11ef-ba4b-8a774758b536"
+    test_dataset_id = "1254913e-5f4b-11f0-a304-46fed9dbfb73"
 
     # Comprehensive test for all operators across all search types
     print("\n🔍 Testing ALL operators for ALL search types:")
 
     try:
-        from .dataset import IssueType, SearchOperator
+        from .dataset import IssueType, SearchOperator, SemanticRelevance
 
         dataset = client.get_dataset_object(test_dataset_id)
 
@@ -381,109 +384,38 @@ def main():
         test_image_path = "/Users/Jack/Downloads/file/angular_leaf_spot_test.0.jpg"
 
         # Test all operators for CAPTION search
+
+        # Test semantic search
         print("\n" + "=" * 60)
-        print("📝 CAPTION SEARCH TESTS")
+        print("🧠 SEMANTIC SEARCH TESTS")
         print("=" * 60)
 
-        for operator in [SearchOperator.IS, SearchOperator.IS_NOT, SearchOperator.IS_ONE_OF, SearchOperator.IS_NOT_ONE_OF]:
+        # Test semantic search with different queries and thresholds
+        semantic_queries = ["blue makeup"]
+
+        for query in semantic_queries:
             try:
-                print(f"\n🔍 Testing {operator.value} for captions:")
-                result = dataset.search_by_captions(test_captions, search_operator=operator)
-                print(f"Results: {len(result)} images")
+                print(f"\n🔍 Testing semantic search for: '{query}'")
 
-                # Verify logic for negative operators
-                if operator in [SearchOperator.IS_NOT, SearchOperator.IS_NOT_ONE_OF]:
-                    positive_operator = SearchOperator.IS if operator == SearchOperator.IS_NOT else SearchOperator.IS_ONE_OF
-                    positive_result = dataset.search_by_captions(test_captions, search_operator=positive_operator)
-                    expected_count = total_images - len(positive_result)
-                    print(f"Expected: {expected_count}, Actual: {len(result)}")
-                    print(f"Logic correct: {len(result) == expected_count}")
+                # Test with medium relevance (default)
+                result_medium = dataset.search_by_semantic(query, relevance=SemanticRelevance.MEDIUM_RELEVANCE)
+                print(f"Medium relevance (0.8) results: {len(result_medium)} images")
 
-                result.to_csv(f"caption_{operator.value}_results.csv", index=False)
+                # Test with high relevance (0.7) for more results
+                result_high = dataset.search_by_semantic(query, relevance=SemanticRelevance.HIGH_RELEVANCE)
+                print(f"High relevance (0.7) results: {len(result_high)} images")
+
+                # Test with low relevance (0.9) for more precise results
+                result_low = dataset.search_by_semantic(query, relevance=SemanticRelevance.LOW_RELEVANCE)
+                print(f"Low relevance (0.9) results: {len(result_low)} images")
+
+                # Save results to CSV
+                result_medium.to_csv(f"semantic_search_{query.replace(' ', '_')}_medium.csv", index=False)
+                result_high.to_csv(f"semantic_search_{query.replace(' ', '_')}_high.csv", index=False)
+                result_low.to_csv(f"semantic_search_{query.replace(' ', '_')}_low.csv", index=False)
 
             except Exception as e:
-                print(f"❌ Error with {operator.value}: {str(e)}")
-
-        # Test all operators for LABEL search
-        print("\n" + "=" * 60)
-        print("🏷️ LABEL SEARCH TESTS")
-        print("=" * 60)
-
-        for operator in [SearchOperator.IS, SearchOperator.IS_NOT, SearchOperator.IS_ONE_OF, SearchOperator.IS_NOT_ONE_OF]:
-            try:
-                print(f"\n🔍 Testing {operator.value} for labels:")
-                result = dataset.search_by_labels(test_labels, search_operator=operator)
-                print(f"Results: {len(result)} images")
-
-                # Verify logic for negative operators
-                if operator in [SearchOperator.IS_NOT, SearchOperator.IS_NOT_ONE_OF]:
-                    positive_operator = SearchOperator.IS if operator == SearchOperator.IS_NOT else SearchOperator.IS_ONE_OF
-                    positive_result = dataset.search_by_labels(test_labels, search_operator=positive_operator)
-                    expected_count = total_images - len(positive_result)
-                    print(f"Expected: {expected_count}, Actual: {len(result)}")
-                    print(f"Logic correct: {len(result) == expected_count}")
-
-                result.to_csv(f"label_{operator.value}_results.csv", index=False)
-
-            except Exception as e:
-                print(f"❌ Error with {operator.value}: {str(e)}")
-
-        # Test all operators for ISSUE search
-        print("\n" + "=" * 60)
-        print("⚠️ ISSUE SEARCH TESTS")
-        print("=" * 60)
-
-        for operator in [SearchOperator.IS, SearchOperator.IS_NOT, SearchOperator.IS_ONE_OF, SearchOperator.IS_NOT_ONE_OF]:
-            try:
-                print(f"\n🔍 Testing {operator.value} for issues:")
-                result = dataset.search_by_issues(test_issues, search_operator=operator)
-                print(f"Results: {len(result)} images")
-
-                # Verify logic for negative operators
-                if operator in [SearchOperator.IS_NOT, SearchOperator.IS_NOT_ONE_OF]:
-                    positive_operator = SearchOperator.IS if operator == SearchOperator.IS_NOT else SearchOperator.IS_ONE_OF
-                    positive_result = dataset.search_by_issues(test_issues, search_operator=positive_operator)
-                    expected_count = total_images - len(positive_result)
-                    print(f"Expected: {expected_count}, Actual: {len(result)}")
-                    print(f"Logic correct: {len(result) == expected_count}")
-
-                result.to_csv(f"issue_{operator.value}_results.csv", index=False)
-
-            except Exception as e:
-                print(f"❌ Error with {operator.value}: {str(e)}")
-
-        # Test all operators for VISUAL SIMILARITY search
-        print("\n" + "=" * 60)
-        print("🖼️ VISUAL SIMILARITY SEARCH TESTS")
-        print("=" * 60)
-
-        # For visual similarity, we'll test with single and multiple images
-        test_images = [test_image_path]
-        if os.path.exists("/Users/Jack/Downloads/file/angular_leaf_spot_test.1.jpg"):
-            test_images.append("/Users/Jack/Downloads/file/angular_leaf_spot_test.1.jpg")
-
-        for operator in [SearchOperator.IS, SearchOperator.IS_NOT, SearchOperator.IS_ONE_OF, SearchOperator.IS_NOT_ONE_OF]:
-            try:
-                print(f"\n🔍 Testing {operator.value} for visual similarity:")
-
-                # Test with single image
-                if len(test_images) == 1:
-                    result = dataset.search_by_visual_similarity(test_images[0], search_operator=operator)
-                    print(f"Single image results: {len(result)} images")
-                else:
-                    # Test with multiple images for IS_ONE_OF and IS_NOT_ONE_OF
-                    if operator in [SearchOperator.IS_ONE_OF, SearchOperator.IS_NOT_ONE_OF]:
-                        result = dataset.search_by_visual_similarity(test_images, search_operator=operator)
-                        print(f"Multiple images results: {len(result)} images")
-                    else:
-                        # For IS and IS_NOT, use single image
-                        result = dataset.search_by_visual_similarity(test_images[0], search_operator=operator)
-                        print(f"Single image results: {len(result)} images")
-
-                result.to_csv(f"visual_similarity_{operator.value}_results.csv", index=False)
-
-            except Exception as e:
-                print(f"❌ Error with {operator.value}: {str(e)}")
+                print(f"❌ Error with semantic search for '{query}': {str(e)}")
 
         # Summary
         print("\n" + "=" * 60)
