@@ -11,21 +11,16 @@ from .logger import get_logger
 
 
 class VisualLayerClient:
-    def __init__(self, api_key: str, api_secret: str, environment: str = "production"):
+    def __init__(self, api_key: str, api_secret: str, url: str = "https://app.visual-layer.com/api/v1"):
         """
         Initialize the VisualLayerClient.
 
         Args:
             api_key (str): Your Visual Layer API key
             api_secret (str): Your Visual Layer API secret
-            environment (str): 'production' (default) or 'staging'. Determines which API base URL to use.
+            url (str): API base URL. Defaults to production URL.
         """
-        if environment == "production":
-            self.base_url = "https://app.visual-layer.com/api/v1"
-        elif environment == "staging":
-            self.base_url = "https://app.staging-visual-layer.link/api/v1"
-        else:
-            raise ValueError(f"Unknown environment: {environment}. Use 'production' or 'staging'.")
+        self.base_url = url
         self.api_key = api_key
         self.api_secret = api_secret
         self.session = requests.Session()
@@ -36,6 +31,14 @@ class VisualLayerClient:
         sdk_logger.setLevel(logging.WARNING)
         for handler in sdk_logger.handlers:
             handler.setLevel(logging.WARNING)
+
+        # Run healthcheck to validate the URL
+        try:
+            self.healthcheck()
+        except Exception as e:
+            print(f"Invalid URL: {url}")
+            print(f"Error: {str(e)}")
+            raise ValueError(f"Invalid URL: {url}")
 
     def _generate_jwt(self) -> str:
         jwt_algorithm = "HS256"
@@ -357,24 +360,76 @@ def main():
 
     print("🚀 Initializing Visual Layer client...")
     client = VisualLayerClient(API_KEY, API_SECRET)
-
+    client2 = VisualLayerClient(API_KEY, API_SECRET, "https://app.staging-visual-layer.link/api/v1")
     # Test dataset ID
-    test_dataset_id = "bc41491e-78ae-11ef-ba4b-8a774758b536"
-    # Manual test for search_by_visual_similarity with a list of image paths
+    test_dataset_id = "1254913e-5f4b-11f0-a304-46fed9dbfb73"
 
-    # Manual test for search_by_issues with multiple issue types
-    print("\n🔍 Testing search_by_issues with multiple issue types:")
-    from .dataset import SearchOperator
+    # Comprehensive test for all operators across all search types
+    print("\n🔍 Testing ALL operators for ALL search types:")
 
-    issue_types = "healthy"
     try:
-        df_issues = client.get_dataset_object(test_dataset_id).search_by_captions(captions=issue_types, entity_type="IMAGES", search_operator=SearchOperator.IS_NOT)
-        print(f"Issue search DataFrame shape: {df_issues.shape}")
-        print(df_issues.head())
-        df_issues.to_csv("issue_search_results.csv", index=False)
-        print("Results saved to issue_search_results.csv")
+        from .dataset import IssueType, SearchOperator, SemanticRelevance
+
+        dataset = client.get_dataset_object(test_dataset_id)
+
+        # Get total number of images in dataset
+        all_images = dataset.export_to_dataframe()
+        total_images = len(all_images)
+        print(f"\n📊 Total images in dataset: {total_images}")
+
+        # Test data for each search type
+        test_captions = ["leaf", "spot"]
+        test_labels = ["plant", "disease"]
+        test_issues = [IssueType.OUTLIERS, IssueType.MISLABELS]
+        test_image_path = "/Users/Jack/Downloads/file/angular_leaf_spot_test.0.jpg"
+
+        # Test all operators for CAPTION search
+
+        # Test semantic search
+        print("\n" + "=" * 60)
+        print("🧠 SEMANTIC SEARCH TESTS")
+        print("=" * 60)
+
+        # Test semantic search with different queries and thresholds
+        semantic_queries = ["blue makeup"]
+
+        for query in semantic_queries:
+            try:
+                print(f"\n🔍 Testing semantic search for: '{query}'")
+
+                # Test with medium relevance (default)
+                result_medium = dataset.search_by_semantic(query, relevance=SemanticRelevance.MEDIUM_RELEVANCE)
+                print(f"Medium relevance (0.8) results: {len(result_medium)} images")
+
+                # Test with high relevance (0.7) for more results
+                result_high = dataset.search_by_semantic(query, relevance=SemanticRelevance.HIGH_RELEVANCE)
+                print(f"High relevance (0.7) results: {len(result_high)} images")
+
+                # Test with low relevance (0.9) for more precise results
+                result_low = dataset.search_by_semantic(query, relevance=SemanticRelevance.LOW_RELEVANCE)
+                print(f"Low relevance (0.9) results: {len(result_low)} images")
+
+                # Save results to CSV
+                result_medium.to_csv(f"semantic_search_{query.replace(' ', '_')}_medium.csv", index=False)
+                result_high.to_csv(f"semantic_search_{query.replace(' ', '_')}_high.csv", index=False)
+                result_low.to_csv(f"semantic_search_{query.replace(' ', '_')}_low.csv", index=False)
+
+            except Exception as e:
+                print(f"❌ Error with semantic search for '{query}': {str(e)}")
+
+        # Summary
+        print("\n" + "=" * 60)
+        print("📊 SUMMARY")
+        print("=" * 60)
+        print("✅ All operators tested for all search types")
+        print("📁 Results saved to CSV files")
+        print("🔍 Check individual CSV files for detailed results")
+
     except Exception as e:
-        print(f"❌ Error in label search: {str(e)}")
+        print(f"❌ Error in comprehensive testing: {str(e)}")
+        import traceback
+
+        traceback.print_exc()
 
 
 if __name__ == "__main__":

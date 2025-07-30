@@ -1,6 +1,7 @@
 import json
 from enum import Enum
 from typing import List
+import uuid
 
 import pandas as pd
 from typeguard import typechecked
@@ -24,6 +25,12 @@ class IssueType(Enum):
     BRIGHT = "bright"
     NORMAL = "normal"
     LABEL_OUTLIER = "label_outlier"
+
+
+class SemanticRelevance(Enum):
+    LOW_RELEVANCE = 0.9
+    MEDIUM_RELEVANCE = 0.8
+    HIGH_RELEVANCE = 0.7
 
 
 ISSUE_TYPE_MAPPING = {
@@ -223,18 +230,18 @@ class Dataset:
             return pd.DataFrame()
 
     @typechecked
-    def get_status(self) -> dict:
+    def get_status(self) -> str:
         return self.get_details()["status"]
 
     @typechecked
-    def search_by_visual_similarity(self, image_path, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS, threshold: int = 0) -> pd.DataFrame:
+    def search_by_visual_similarity(self, image_path, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF, threshold: int = 0) -> pd.DataFrame:
         """
         Search dataset by visual similarity for one or more images asynchronously, poll until export is ready, download the results, and return as a DataFrame.
 
         Args:
             image_path (str or List[str]): Path(s) to the image file(s) to use as anchor(s)
             entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
-            search_operator (SearchOperator): Search operator for visual similarity (default: SearchOperator.IS)
+            search_operator (SearchOperator): Search operator for visual similarity (default: SearchOperator.IS_ONE_OF)
             threshold (int): Similarity threshold as string (default: 0)
 
         Returns:
@@ -244,8 +251,8 @@ class Dataset:
             ValueError: If image_path is not provided
 
         Examples:
-            df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS, threshold=0)
-            df = dataset.search_by_visual_similarity(image_path=["/path/to/img1.jpg", "/path/to/img2.jpg"], entity_type="IMAGES", search_operator=SearchOperator.IS)
+            df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, threshold=0)
+            df = dataset.search_by_visual_similarity(image_path=["/path/to/img1.jpg", "/path/to/img2.jpg"], entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF)
         """
         if isinstance(search_operator, str):
             try:
@@ -253,7 +260,9 @@ class Dataset:
             except ValueError:
                 self.logger.warning(f"Invalid search_operator for visual similarity: {search_operator}")
                 return pd.DataFrame()
-        if search_operator != SearchOperator.IS:
+        if search_operator == SearchOperator.IS and len(image_path) == 1:
+            search_operator = SearchOperator.IS_ONE_OF
+        elif search_operator != SearchOperator.IS_ONE_OF:
             self.logger.warning(f"Search operator {search_operator} is not implemented for visual similarity.")
             return pd.DataFrame()
 
@@ -275,7 +284,7 @@ class Dataset:
         if not media_id:
             raise ValueError("Failed to get anchor_media_id from image upload")
         # Form the VQL for visual similarity search
-        vql = [{"id": "similarity_search", "similarity": {"op": "upload", "value": media_id}}]
+        vql = [{"id": "similarity_search", "similarity": {"op": "upload", "value": media_id, "threshold": threshold}}]
 
         # Step 1: Start async search and get initial status using the general VQL function
         return self.search_by_vql(vql, entity_type)
@@ -303,11 +312,9 @@ class Dataset:
             return pd.DataFrame()
 
         if isinstance(captions, str):
-            combined_text = captions
+            captions = [captions]
         elif not isinstance(captions, list):
             raise ValueError(f"captions must be a list of strings, got {type(captions).__name__}")
-        else:
-            combined_text = " ".join(captions)
 
         if isinstance(search_operator, str):
             try:
@@ -315,9 +322,68 @@ class Dataset:
             except ValueError:
                 raise ValueError(f"Invalid search_operator for captions: {search_operator}")
 
+        # Handle IS_NOT_ONE_OF operator by getting all images and removing IS_ONE_OF results
+        if search_operator == SearchOperator.IS_NOT_ONE_OF:
+            # Get all images in the dataset
+            all_images = self.export_to_dataframe()
+            if all_images.empty:
+                return pd.DataFrame()
+
+            # Get the images that match any of the captions (IS_ONE_OF logic)
+            matching_images = self.search_by_captions(captions, entity_type, SearchOperator.IS_ONE_OF)
+
+            # Remove matching images from all images
+            if not matching_images.empty:
+                result = all_images[~all_images["media_id"].isin(matching_images["media_id"])]
+            else:
+                result = all_images
+
+            return result
+
+        # Handle IS_NOT operator by getting all images and removing IS results
+        if search_operator == SearchOperator.IS_NOT:
+            # Get all images in the dataset
+            all_images = self.export_to_dataframe()
+            if all_images.empty:
+                return pd.DataFrame()
+
+            # Get the images that match all captions combined (IS logic)
+            matching_images = self.search_by_captions(captions, entity_type, SearchOperator.IS)
+
+            # Remove matching images from all images
+            if not matching_images.empty:
+                result = all_images[~all_images["media_id"].isin(matching_images["media_id"])]
+            else:
+                result = all_images
+
+            return result
+
+        # Handle IS_ONE_OF operator by calling search_by_vql multiple times and combining results
+        if search_operator == SearchOperator.IS_ONE_OF:
+            dfs = []
+            for caption in captions:
+                # Create VQL for single caption
+                vql = [{"text": {"op": "fts", "value": caption}}]
+
+                # Call search_by_vql for this caption
+                df = self.search_by_vql(vql, entity_type)
+                if df is not None and not df.empty:
+                    dfs.append(df)
+
+            # Combine results and remove duplicates
+            if dfs:
+                combined = pd.concat(dfs, ignore_index=True).drop_duplicates(subset=["media_id"])
+                return combined
+            else:
+                return pd.DataFrame()
+
+        # Handle other operators (existing logic)
         if search_operator != SearchOperator.IS:
             self.logger.warning(f"Search operator {search_operator} is not implemented for captions yet.")
             return pd.DataFrame()
+
+        # Combine all captions into one search string for IS operator
+        combined_text = " ".join(captions)
 
         # Form the VQL for caption search (keep op hardcoded as 'fts')
         vql = [{"text": {"op": "fts", "value": combined_text}}]
@@ -358,9 +424,41 @@ class Dataset:
             except ValueError:
                 raise ValueError(f"Invalid search_operator for labels: {search_operator}")
 
-        # if search_operator != SearchOperator.IS_ONE_OF:
-        #    self.logger.warning(f"Search operator {search_operator} is not implemented for labels yet.")
-        #    return pd.DataFrame()
+        # Handle IS_NOT_ONE_OF operator by getting all images and removing IS_ONE_OF results
+        if search_operator == SearchOperator.IS_NOT_ONE_OF:
+            # Get all images in the dataset
+            all_images = self.export_to_dataframe()
+            if all_images.empty:
+                return pd.DataFrame()
+
+            # Get the images that match any of the labels (IS_ONE_OF logic)
+            matching_images = self.search_by_labels(labels, entity_type, SearchOperator.IS_ONE_OF)
+
+            # Remove matching images from all images
+            if not matching_images.empty:
+                result = all_images[~all_images["media_id"].isin(matching_images["media_id"])]
+            else:
+                result = all_images
+
+            return result
+
+        # Handle IS_NOT operator by getting all images and removing IS results
+        if search_operator == SearchOperator.IS_NOT:
+            # Get all images in the dataset
+            all_images = self.export_to_dataframe()
+            if all_images.empty:
+                return pd.DataFrame()
+
+            # Get the images that match all labels combined (IS logic)
+            matching_images = self.search_by_labels(labels, entity_type, SearchOperator.IS)
+
+            # Remove matching images from all images
+            if not matching_images.empty:
+                result = all_images[~all_images["media_id"].isin(matching_images["media_id"])]
+            else:
+                result = all_images
+
+            return result
 
         # Form the VQL for label search (keep op hardcoded as 'one_of')
         vql = [{"id": "label_filter", "labels": {"op": search_operator.value, "value": labels}}]
@@ -373,7 +471,7 @@ class Dataset:
         self,
         issue_type: "IssueType | List[IssueType]" = None,
         entity_type: str = "IMAGES",
-        search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF,
+        search_operator: "SearchOperator" = SearchOperator.IS,
         confidence_min: float = 0.8,
         confidence_max: float = 1.0,
     ) -> pd.DataFrame:
@@ -383,7 +481,7 @@ class Dataset:
         Args:
             issue_type (IssueType or List[IssueType]): Issue type(s) to search for (e.g., IssueType.BLUR, IssueType.DARK, IssueType.OUTLIERS)
             entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
-            search_operator (SearchOperator): Search operator for issues (default: SearchOperator.IS_ONE_OF)
+            search_operator (SearchOperator): Search operator for issues (default: SearchOperator.IS)
             confidence_min (float): Minimum confidence threshold (default: 0.8)
             confidence_max (float): Maximum confidence threshold (default: 1.0)
 
@@ -391,9 +489,8 @@ class Dataset:
             pd.DataFrame: DataFrame containing the search results
 
         Examples:
-            df = dataset.search_by_issues(issue_type=[IssueType.BLUR, IssueType.OUTLIERS], entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, confidence_min=0.5, confidence_max=1.0)
+            df = dataset.search_by_issues(issue_type=[IssueType.BLUR, IssueType.OUTLIERS], entity_type="IMAGES", search_operator=SearchOperator.IS, confidence_min=0.5, confidence_max=1.0)
         """
-        mode = "in"
         if not issue_type:
             raise ValueError("issue_type must be provided")
 
@@ -403,13 +500,59 @@ class Dataset:
             except ValueError:
                 self.logger.warning(f"Invalid search_operator for issues: {search_operator}")
                 return pd.DataFrame()
+
+        if not isinstance(issue_type, list):
+            issue_type = [issue_type]
+
+        # Handle IS_NOT operator by getting all images and removing IS results
+        if search_operator == SearchOperator.IS_NOT:
+            # Get all images in the dataset
+            all_images = self.export_to_dataframe()
+            if all_images.empty:
+                return pd.DataFrame()
+
+            # Get the images that match all issue types combined (IS logic)
+            matching_images = self.search_by_issues(issue_type, entity_type, SearchOperator.IS, confidence_min, confidence_max)
+
+            # Remove matching images from all images
+            if not matching_images.empty:
+                result = all_images[~all_images["media_id"].isin(matching_images["media_id"])]
+            else:
+                result = all_images
+
+            return result
+
+        # Handle IS_ONE_OF operator by calling search_by_vql multiple times and combining results
         if search_operator == SearchOperator.IS_ONE_OF:
-            mode = "in"
-        elif search_operator == SearchOperator.IS_NOT_ONE_OF:
+            dfs = []
+            for it in issue_type:
+                # Create VQL for single issue type
+                issue_type_str = it.value
+                if issue_type_str not in ALLOWED_ISSUE_NAMES:
+                    self.logger.warning(f"Invalid issue type '{issue_type_str}'. Allowed types: {list(ALLOWED_ISSUE_NAMES)}")
+                    continue
+
+                vql = [{"issues": {"op": "issue", "value": issue_type_str, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": "in"}}]
+
+                # Call search_by_vql for this issue type
+                df = self.search_by_vql(vql, entity_type)
+                if df is not None and not df.empty:
+                    dfs.append(df)
+
+            # Combine results and remove duplicates
+            if dfs:
+                combined = pd.concat(dfs, ignore_index=True).drop_duplicates(subset=["media_id"])
+                return combined
+            else:
+                return pd.DataFrame()
+
+        # Handle other operators (existing logic)
+        mode = "in"
+        if search_operator == SearchOperator.IS_NOT_ONE_OF:
             mode = "out"
         elif search_operator == SearchOperator.IS_NOT and len(issue_type) == 1:
             mode = "out"
-        elif search_operator == SearchOperator.IS and len(issue_type) == 1:
+        elif search_operator == SearchOperator.IS:
             mode = "in"
         else:
             self.logger.warning(f"Search operator {search_operator} is not implemented for issues yet.")
@@ -430,6 +573,40 @@ class Dataset:
             vql.append({"issues": {"op": "issue", "value": issue_type_str, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": mode}})
 
         # Call the general VQL search function
+        return self.search_by_vql(vql, entity_type)
+
+    @typechecked
+    def search_by_semantic(self, text: str, entity_type: str = "IMAGES", relevance: "SemanticRelevance" = SemanticRelevance.MEDIUM_RELEVANCE) -> pd.DataFrame:
+        """
+        Search dataset by semantic similarity using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame.
+
+        Args:
+            text (str): Text string to search for semantic similarity
+            entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
+            relevance (SemanticRelevance): Relevance level for semantic search (default: MEDIUM_RELEVANCE)
+
+        Returns:
+            pd.DataFrame: DataFrame containing the search results, or empty if not ready
+
+        Examples:
+            df = dataset.search_by_semantic("people walking on the beach", "IMAGES", relevance=SemanticRelevance.HIGH_RELEVANCE)
+        """
+        # Check if semantic search is enabled in user config
+        user_config = self._get_user_config()
+        if not user_config.get("semantic_search", False):
+            self.logger.warning("Semantic search is not enabled for this dataset.")
+            return pd.DataFrame()
+
+        if not text or not isinstance(text, str):
+            raise ValueError("text must be a non-empty string")
+
+        # Get threshold value from the enum
+        threshold = relevance.value
+
+        # Form the VQL for semantic search
+        vql = [{"id": str(uuid.uuid4()), "text": {"op": "semantic", "value": text, "threshold": threshold}}]
+
+        # Step 1: Start async search and get initial status using the general VQL function
         return self.search_by_vql(vql, entity_type)
 
     @typechecked
@@ -730,15 +907,18 @@ class Dataset:
 
         labels_search = None
         captions_search = None
+        semantic_search = None
         features = full_response.get("features", [])
         for feature in features:
             if feature.get("feature_key") == "TEXTUAL_SEARCH_IMAGE":
                 options = feature.get("feature_options", {})
                 labels_search = options.get("labels_search")
                 captions_search = options.get("captions_search")
+                semantic_search = options.get("semantic_search")
                 break
 
         return {
             "labels_search": labels_search,
             "captions_search": captions_search,
+            "semantic_search": semantic_search,
         }

@@ -66,16 +66,18 @@ The main client class for interacting with the Visual Layer API.
 client = VisualLayerClient(api_key="your_api_key", api_secret="your_api_secret")
 ```
 
-- **Staging:**
+- **Custom URL:**
 
 ```python
-client = VisualLayerClient(api_key="your_api_key", api_secret="your_api_secret", environment="staging")
+client = VisualLayerClient(api_key="your_api_key", api_secret="your_api_secret", url="https://app.staging-visual-layer.link/api/v1")
 ```
 
 **Parameters:**
 - `api_key` (str): Your Visual Layer API key
 - `api_secret` (str): Your Visual Layer API secret
-- `environment` (str): 'production' (default) or 'staging'. Determines which API base URL to use.
+- `url` (str): API base URL. Defaults to production URL: "https://app.visual-layer.com/api/v1"
+
+**Note:** The client automatically performs a healthcheck during initialization to validate the provided URL. If the healthcheck fails, an "Invalid URL" error will be raised.
 
 #### Core Methods
 
@@ -248,6 +250,21 @@ df = dataset.search_by_captions(["cat", "sitting", "outdoors"], "IMAGES")
 
 **Returns:** DataFrame containing the search results, or empty if not ready or no matches found.
 
+##### `search_by_semantic(text: str, entity_type: str = "IMAGES", relevance: SemanticRelevance = SemanticRelevance.MEDIUM_RELEVANCE) -> pd.DataFrame`
+Search the dataset by semantic similarity using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame.
+
+```python
+from visual_layer_sdk.dataset import SemanticRelevance
+
+df = dataset.search_by_semantic("people walking on the beach", "IMAGES", relevance=SemanticRelevance.HIGH_RELEVANCE)
+```
+
+- `text` (str): Text string to search for semantic similarity
+- `entity_type` (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
+- `relevance` (SemanticRelevance): Relevance level for semantic search (default: MEDIUM_RELEVANCE)
+
+**Returns:** DataFrame containing the search results, or empty if not ready or no matches found.
+
 ##### `search_by_issues(issue_type: IssueType or List[IssueType], entity_type: str = "IMAGES", search_operator: SearchOperator = SearchOperator.IS_ONE_OF, confidence_min: float = 0.8, confidence_max: float = 1.0) -> pd.DataFrame`
 Search the dataset by one or more issues using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame. If a list of issue types is provided, the VQL will include a filter for each issue type.
 
@@ -271,17 +288,17 @@ df = dataset.search_by_issues(
 
 **Returns:** DataFrame containing the search results for all specified issues.
 
-##### `search_by_visual_similarity(image_path: str or List[str], entity_type: str = "IMAGES", search_operator: SearchOperator = SearchOperator.IS, threshold: int = 0) -> pd.DataFrame`
+##### `search_by_visual_similarity(image_path: str or List[str], entity_type: str = "IMAGES", search_operator: SearchOperator = SearchOperator.IS_ONE_OF, threshold: int = 0) -> pd.DataFrame`
 Search the dataset by visual similarity using one or more local image files as anchors, poll until export is ready, download the results, and return as a DataFrame. If a list of image paths is provided, results are combined and duplicates (by `media_id`) are removed.
 
 ```python
-df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS)
-df = dataset.search_by_visual_similarity(image_path=["/path/to/img1.jpg", "/path/to/img2.jpg"], entity_type="IMAGES", search_operator=SearchOperator.IS)
+df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF)
+df = dataset.search_by_visual_similarity(image_path=["/path/to/img1.jpg", "/path/to/img2.jpg"], entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF)
 ```
 
 - `image_path` (str or List[str]): Path(s) to the image file(s) to use as anchor(s)
 - `entity_type` (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
-- `search_operator` (SearchOperator): Search operator for visual similarity (default: SearchOperator.IS)
+- `search_operator` (SearchOperator): Search operator for visual similarity (default: SearchOperator.IS_ONE_OF)
 - `threshold` (int): Similarity threshold as string (default: 0)
 
 **Returns:** DataFrame containing the combined search results, with duplicates (by `media_id`) removed.
@@ -326,6 +343,17 @@ IssueType.DARK           # "dark" - Dark/underexposed images
 IssueType.BRIGHT         # "bright" - Bright/overexposed images
 IssueType.NORMAL         # "normal" - Normal images (no issues)
 IssueType.LABEL_OUTLIER  # "label_outlier" - Label outliers
+```
+
+##### `SemanticRelevance` Enum
+The `relevance` parameter uses the `SemanticRelevance` enum:
+
+```python
+from visual_layer_sdk.dataset import SemanticRelevance
+
+SemanticRelevance.LOW_RELEVANCE     # 0.9 - High threshold, more precise results
+SemanticRelevance.MEDIUM_RELEVANCE  # 0.8 - Default threshold, balanced results
+SemanticRelevance.HIGH_RELEVANCE    # 0.7 - Low threshold, more inclusive results
 ```
 
 ## Displaying Images
