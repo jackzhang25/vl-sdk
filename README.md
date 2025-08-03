@@ -288,18 +288,23 @@ df = dataset.search_by_issues(
 
 **Returns:** DataFrame containing the search results for all specified issues.
 
-##### `search_by_visual_similarity(image_path: str or List[str], entity_type: str = "IMAGES", search_operator: SearchOperator = SearchOperator.IS_ONE_OF, threshold: int = 0) -> pd.DataFrame`
+##### `search_by_visual_similarity(image_path: str or List[str], entity_type: str = "IMAGES", search_operator: SearchOperator = SearchOperator.IS_ONE_OF, threshold: float = 0.8) -> pd.DataFrame`
 Search the dataset by visual similarity using one or more local image files as anchors, poll until export is ready, download the results, and return as a DataFrame. If a list of image paths is provided, results are combined and duplicates (by `media_id`) are removed.
 
 ```python
-df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF)
+df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, threshold=0.5)
 df = dataset.search_by_visual_similarity(image_path=["/path/to/img1.jpg", "/path/to/img2.jpg"], entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF)
 ```
 
 - `image_path` (str or List[str]): Path(s) to the image file(s) to use as anchor(s)
 - `entity_type` (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
 - `search_operator` (SearchOperator): Search operator for visual similarity (default: SearchOperator.IS_ONE_OF)
-- `threshold` (int): Similarity threshold as string (default: 0)
+- `threshold` (float): Similarity threshold between 0.0 and 1.0 (default: 0.8)
+  - Lower values = more restrictive (fewer results)
+  - Higher values = less restrictive (more results)
+  - Recommended range: 0.2-0.8
+  - Values < 0.2 may return no results
+  - Values > 0.9 may cause connection timeouts
 
 **Returns:** DataFrame containing the combined search results, with duplicates (by `media_id`) removed.
 
@@ -355,6 +360,58 @@ SemanticRelevance.LOW_RELEVANCE     # 0.9 - High threshold, more precise results
 SemanticRelevance.MEDIUM_RELEVANCE  # 0.8 - Default threshold, balanced results
 SemanticRelevance.HIGH_RELEVANCE    # 0.7 - Low threshold, more inclusive results
 ```
+
+##### `get_available_models() -> list`
+Get available models for enrichment for this dataset.
+
+```python
+models = dataset.get_available_models()
+print(f"Available models: {models}")
+```
+
+**Returns:** List containing available models for enrichment.
+
+##### `enrich_dataset(enrichment_models: dict) -> dict`
+Enrich the dataset with specified models.
+
+```python
+# Enrich with caption and object detection
+result = dataset.enrich_dataset({
+    "CAPTION_IMAGES": "vl_image_captioner_v00",
+    "OBJECT_DETECTION": "vl_object_detector_v00"
+})
+
+# Enrich with semantic search
+result = dataset.enrich_dataset({
+    "MULTIMODEL_IMAGE_ENCODING": "DFN5B-CLIP-ViT-H-14-384-images"
+})
+```
+
+- `enrichment_models` (dict): Dictionary mapping enrichment types to model names
+
+**Returns:** Dictionary response from the enrichment API.
+
+##### `check_enrichment_progress(enrichment_context_id: str) -> dict`
+Check enrichment progress with percentage.
+
+```python
+# First get the enrichment context
+context_url = f"{client.base_url}/enrichment/{dataset_id}/context"
+context_response = client.session.get(context_url, headers=client._get_headers())
+context_data = context_response.json()
+context_id = context_data.get('context_id')
+
+# Then check progress
+progress = dataset.check_enrichment_progress(context_id)
+print(f"Status: {progress['status']}")
+print(f"Progress: {progress['progress']}%")
+```
+
+- `enrichment_context_id` (str): The enrichment context ID from the enrichment API
+
+**Returns:** Dictionary containing enrichment status and progress information.
+
+**Note:** This method also prints status and progress to the console for easy monitoring.
 
 ## Displaying Images
 

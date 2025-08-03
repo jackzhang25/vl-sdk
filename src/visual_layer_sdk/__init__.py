@@ -8,7 +8,7 @@ from .client import VisualLayerClient
 from .dataset import Dataset, IssueType, SearchOperator
 from .exceptions import VisualLayerException
 
-__version__ = "0.1.21"
+__version__ = "0.1.24"
 __all__ = [
     "VisualLayerClient",
     "Dataset",

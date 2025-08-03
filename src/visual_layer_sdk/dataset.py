@@ -164,7 +164,7 @@ class Dataset:
         return response.json()
 
     @typechecked
-    def get_image_info(self, image_id) -> list:
+    def get_image_info(self, image_id) -> dict:
         response = self.client.session.get(
             f"{self.base_url}/image/{image_id}",
             headers=self.client._get_headers(),
@@ -234,7 +234,7 @@ class Dataset:
         return self.get_details()["status"]
 
     @typechecked
-    def search_by_visual_similarity(self, image_path, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF, threshold: int = 0) -> pd.DataFrame:
+    def search_by_visual_similarity(self, image_path, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF, threshold: float = 0.8) -> pd.DataFrame:
         """
         Search dataset by visual similarity for one or more images asynchronously, poll until export is ready, download the results, and return as a DataFrame.
 
@@ -242,18 +242,32 @@ class Dataset:
             image_path (str or List[str]): Path(s) to the image file(s) to use as anchor(s)
             entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
             search_operator (SearchOperator): Search operator for visual similarity (default: SearchOperator.IS_ONE_OF)
-            threshold (int): Similarity threshold as string (default: 0)
+            threshold (float): Similarity threshold between 0.0 and 1.0 (default: 0.8)
+                             Lower values = more restrictive (fewer results)
+                             Higher values = less restrictive (more results)
+                             Recommended range: 0.2-0.8
 
         Returns:
             pd.DataFrame: DataFrame containing the combined search results, with duplicates removed
 
         Raises:
-            ValueError: If image_path is not provided
+            ValueError: If image_path is not provided or threshold is outside valid range (0.0-1.0)
 
         Examples:
-            df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, threshold=0)
+            df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, threshold=0.5)
             df = dataset.search_by_visual_similarity(image_path=["/path/to/img1.jpg", "/path/to/img2.jpg"], entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF)
         """
+        # Validate threshold range
+        if not isinstance(threshold, (int, float)) or threshold < 0.0 or threshold > 1.0:
+            raise ValueError(f"threshold must be a float between 0.0 and 1.0, got {threshold}")
+
+        # Warn for very restrictive thresholds that might return no results
+        if threshold < 0.2:
+            self.logger.warning(f"Very low threshold ({threshold}) may return no results. Consider using 0.2-0.8 for better results.")
+
+        # Warn for very permissive thresholds that might cause performance issues
+        if threshold > 0.9:
+            self.logger.warning(f"Very high threshold ({threshold}) may cause connection timeouts. Consider using 0.2-0.8 for better performance.")
         if isinstance(search_operator, str):
             try:
                 search_operator = SearchOperator(search_operator)
@@ -922,3 +936,111 @@ class Dataset:
             "captions_search": captions_search,
             "semantic_search": semantic_search,
         }
+
+    @typechecked
+    def get_available_models(self) -> list:
+        """
+        Get available models for enrichment for this dataset.
+
+        Returns:
+            list: List containing available models for enrichment
+
+        Examples:
+            models = dataset.get_available_models()
+            print(f"Available models: {models}")
+        """
+        url = f"{self.base_url}/enrichment/{self.dataset_id}/list_models"
+        headers = self.client._get_headers()
+
+        try:
+            self.logger.info(f"Fetching available models for dataset {self.dataset_id}")
+            response = self.client.session.get(url, headers=headers)
+            response.raise_for_status()
+            result = response.json()
+            self.logger.success("Successfully retrieved available models")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to get available models: {str(e)}")
+            raise
+
+    @typechecked
+    def enrich_dataset(self, enrichment_models: dict) -> dict:
+        """
+        Enrich the dataset with specified models.
+
+        Args:
+            enrichment_models (dict): Dictionary mapping enrichment types to model names.
+                                    Example: {
+                                        "CAPTION_IMAGES": "vl_image_captioner_v00",
+                                        "OBJECT_DETECTION": "vl_object_detector_v00"
+                                    }
+
+        Returns:
+            dict: Response from the enrichment API
+
+        Examples:
+            # Enrich with caption and object detection
+            result = dataset.enrich_dataset({
+                "CAPTION_IMAGES": "vl_image_captioner_v00",
+                "OBJECT_DETECTION": "vl_object_detector_v00"
+            })
+            print(f"Enrichment result: {result}")
+        """
+        if not enrichment_models or not isinstance(enrichment_models, dict):
+            raise ValueError("enrichment_models must be a non-empty dictionary")
+
+        url = f"{self.base_url}/dataset/{self.dataset_id}/enrich_dataset"
+        headers = self.client._get_headers()
+        headers["Content-Type"] = "application/json"
+
+        enrichment_config = {"enrichment_models": enrichment_models}
+
+        try:
+            self.logger.info(f"Starting enrichment for dataset {self.dataset_id}")
+            self.logger.debug(f"Enrichment config: {enrichment_config}")
+
+            response = self.client.session.post(url, headers=headers, json=enrichment_config)
+            response.raise_for_status()
+            result = response.json()
+
+            self.logger.success("Dataset enrichment started successfully")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to enrich dataset: {str(e)}")
+            raise
+
+    @typechecked
+    def check_enrichment_progress(self, enrichment_context_id: str) -> dict:
+        """
+        Check enrichment progress with percentage.
+
+        Args:
+            enrichment_context_id (str): The enrichment context ID from get_enrichment_context
+
+        Returns:
+            dict: Dictionary containing enrichment status and progress information
+
+        Examples:
+            context = dataset.get_enrichment_context()
+            progress = dataset.check_enrichment_progress(context['context_id'])
+            print(f"Progress: {progress['progress']}%")
+        """
+        url = f"{self.base_url}/enrichment/{self.dataset_id}/{enrichment_context_id}/status"
+        headers = self.client._get_headers()
+
+        try:
+            self.logger.info(f"Checking enrichment progress for dataset {self.dataset_id}, context {enrichment_context_id}")
+            response = self.client.session.get(url, headers=headers)
+            response.raise_for_status()
+            status = response.json()
+
+            progress = status.get("progress", 0)
+            self.logger.info(f"Enrichment status: {status.get('status', 'unknown')}, Progress: {progress}%")
+
+            print(f"Status: {status.get('status', 'unknown')}")
+            print(f"Progress: {progress}%")
+
+            return status
+        except Exception as e:
+            self.logger.error(f"Failed to check enrichment progress: {str(e)}")
+            raise
