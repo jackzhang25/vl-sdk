@@ -6,7 +6,7 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 
-from .dataset import Dataset
+from .dataset import Dataset, SearchOperator
 from .logger import get_logger
 
 
@@ -347,6 +347,8 @@ class VisualLayerClient:
 
 
 def main():
+    import os
+
     load_dotenv()
 
     # Get API credentials from environment
@@ -360,73 +362,72 @@ def main():
 
     print("🚀 Initializing Visual Layer client...")
     client = VisualLayerClient(API_KEY, API_SECRET)
-    client2 = VisualLayerClient(API_KEY, API_SECRET, "https://app.staging-visual-layer.link/api/v1")
-    # Test dataset ID
-    test_dataset_id = "1254913e-5f4b-11f0-a304-46fed9dbfb73"
 
-    # Comprehensive test for all operators across all search types
-    print("\n🔍 Testing ALL operators for ALL search types:")
+    # Test dataset ID - using a dataset that should have images
+    test_dataset_id = "3972b3fc-1809-11ef-bb76-064432e0d220"
+    test_image_path = "./sample/dog.jpeg"
 
     try:
-        from .dataset import IssueType, SearchOperator, SemanticRelevance
+        print(f"\n🔍 Testing visual search for dataset: {test_dataset_id}")
+        print(f"📸 Using test image: {test_image_path}")
 
+        # Get dataset object
         dataset = client.get_dataset_object(test_dataset_id)
 
-        # Get total number of images in dataset
-        all_images = dataset.export_to_dataframe()
-        total_images = len(all_images)
-        print(f"\n📊 Total images in dataset: {total_images}")
+        # Check if test image exists
+        if not os.path.exists(test_image_path):
+            print(f"❌ Test image not found: {test_image_path}")
+            print("Please make sure the sample/dog.jpeg file exists")
+            return
 
-        # Test data for each search type
-        test_captions = ["leaf", "spot"]
-        test_labels = ["plant", "disease"]
-        test_issues = [IssueType.OUTLIERS, IssueType.MISLABELS]
-        test_image_path = "/Users/Jack/Downloads/file/angular_leaf_spot_test.0.jpg"
+        # Test visual search with different thresholds
+        thresholds = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 
-        # Test all operators for CAPTION search
+        for threshold in thresholds:
+            print(f"\n" + "=" * 60)
+            print(f"🔍 Testing visual search with threshold: {threshold}")
+            print("=" * 60)
 
-        # Test semantic search
-        print("\n" + "=" * 60)
-        print("🧠 SEMANTIC SEARCH TESTS")
-        print("=" * 60)
-
-        # Test semantic search with different queries and thresholds
-        semantic_queries = ["blue makeup"]
-
-        for query in semantic_queries:
             try:
-                print(f"\n🔍 Testing semantic search for: '{query}'")
+                # Perform visual similarity search
+                df_results = dataset.search_by_visual_similarity(image_path=test_image_path, entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, threshold=threshold)
 
-                # Test with medium relevance (default)
-                result_medium = dataset.search_by_semantic(query, relevance=SemanticRelevance.MEDIUM_RELEVANCE)
-                print(f"Medium relevance (0.8) results: {len(result_medium)} images")
+                print(f"✅ Visual search completed with threshold {threshold}")
+                print(f"📊 Found {len(df_results)} similar images")
 
-                # Test with high relevance (0.7) for more results
-                result_high = dataset.search_by_semantic(query, relevance=SemanticRelevance.HIGH_RELEVANCE)
-                print(f"High relevance (0.7) results: {len(result_high)} images")
-
-                # Test with low relevance (0.9) for more precise results
-                result_low = dataset.search_by_semantic(query, relevance=SemanticRelevance.LOW_RELEVANCE)
-                print(f"Low relevance (0.9) results: {len(result_low)} images")
-
-                # Save results to CSV
-                result_medium.to_csv(f"semantic_search_{query.replace(' ', '_')}_medium.csv", index=False)
-                result_high.to_csv(f"semantic_search_{query.replace(' ', '_')}_high.csv", index=False)
-                result_low.to_csv(f"semantic_search_{query.replace(' ', '_')}_low.csv", index=False)
+                if len(df_results) > 0:
+                    # Save results to CSV
+                    csv_filename = f"visual_search_results_threshold_{threshold}.csv"
+                    df_results.to_csv(csv_filename, index=False)
+                    print(f"💾 Results saved to {csv_filename}")
+                else:
+                    print("⚠️  No similar images found with this threshold")
 
             except Exception as e:
-                print(f"❌ Error with semantic search for '{query}': {str(e)}")
+                print(f"❌ Error with threshold {threshold}: {str(e)}")
+                import traceback
+
+                traceback.print_exc()
 
         # Summary
         print("\n" + "=" * 60)
-        print("📊 SUMMARY")
+        print("📊 VISUAL SEARCH TEST SUMMARY")
         print("=" * 60)
-        print("✅ All operators tested for all search types")
+        print("✅ Tested visual search with thresholds: 0.7, 0.8, 0.9")
         print("📁 Results saved to CSV files")
         print("🔍 Check individual CSV files for detailed results")
 
+    except requests.exceptions.HTTPError as e:
+        print(f"❌ HTTP Error: {e}")
+        print(f"Status Code: {e.response.status_code}")
+        print(f"Response Text: {e.response.text}")
+        try:
+            error_json = e.response.json()
+            print(f"Error Details: {error_json}")
+        except:
+            print("Could not parse error response as JSON")
     except Exception as e:
-        print(f"❌ Error in comprehensive testing: {str(e)}")
+        print(f"❌ Error with visual search test: {str(e)}")
         import traceback
 
         traceback.print_exc()
