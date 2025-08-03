@@ -1,7 +1,7 @@
 import json
+import uuid
 from enum import Enum
 from typing import List
-import uuid
 
 import pandas as pd
 from typeguard import typechecked
