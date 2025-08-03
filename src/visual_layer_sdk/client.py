@@ -384,7 +384,7 @@ def main():
         thresholds = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 
         for threshold in thresholds:
-            print(f"\n" + "=" * 60)
+            print("\n" + "=" * 60)
             print(f"🔍 Testing visual search with threshold: {threshold}")
             print("=" * 60)
 
@@ -424,7 +424,7 @@ def main():
         try:
             error_json = e.response.json()
             print(f"Error Details: {error_json}")
-        except:
+        except (ValueError, Exception):
             print("Could not parse error response as JSON")
     except Exception as e:
         print(f"❌ Error with visual search test: {str(e)}")

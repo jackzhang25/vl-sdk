@@ -104,10 +104,10 @@ class TestDatasetRegression:
 
     def test_get_image_info(self):
         with patch.object(self.dataset.client.session, "get") as mock_get:
-            mock_get.return_value.json.return_value = [1, 2, 3]
+            mock_get.return_value.json.return_value = {"id": "imgid", "info": "test"}
             mock_get.return_value.raise_for_status = MagicMock()
             info = self.dataset.get_image_info("imgid")
-            assert info == [1, 2, 3]
+            assert info == {"id": "imgid", "info": "test"}
 
     def test_export_to_dataframe(self):
         with patch.object(self.dataset, "get_status", return_value="READY"):
