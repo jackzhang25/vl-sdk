@@ -47,7 +47,7 @@ ALLOWED_ISSUE_NAMES = {v["name"] for v in ISSUE_TYPE_MAPPING.values()}
 
 
 class Dataset:
-    # TODO: add id and name fields
+    # TODO: add in details what search capabilities are available for the dataset
     def __init__(self, client, dataset_id: str, poll_interval: int = 10, timeout: int = 300):
         self.client = client
         self.dataset_id = dataset_id
@@ -131,6 +131,24 @@ class Dataset:
 
         # Create filtered dictionary with only the selected fields
         filtered_details = {field: full_response.get(field) for field in selected_fields}
+
+        # Add search capabilities information
+        try:
+            user_config = self._get_user_config()
+            search_capabilities = {
+                "labels_search": user_config.get("labels_search", False),
+                "captions_search": user_config.get("captions_search", False),
+                "semantic_search": user_config.get("semantic_search", False),
+            }
+            filtered_details["search_capabilities"] = search_capabilities
+        except Exception as e:
+            # If we can't get user config, set all search capabilities to None
+            self.logger.warning(f"Could not retrieve search capabilities: {str(e)}")
+            filtered_details["search_capabilities"] = {
+                "labels_search": None,
+                "captions_search": None,
+                "semantic_search": None,
+            }
 
         return filtered_details
 

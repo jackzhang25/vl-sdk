@@ -373,7 +373,7 @@ def main():
 
         # Get dataset object
         dataset = client.get_dataset_object(test_dataset_id)
-
+        print(dataset.get_available_models())
         # Check if test image exists
         if not os.path.exists(test_image_path):
             print(f"❌ Test image not found: {test_image_path}")
