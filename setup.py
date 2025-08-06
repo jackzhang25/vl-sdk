@@ -2,12 +2,15 @@ from setuptools import setup, find_packages
 
 setup(
     name="visual_layer_sdk",
-    version="0.1.24",
+    version="0.1.25",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     install_requires=[
         "requests>=2.31.0",
-        "pathlib>=1.0.1",
+        "python-dotenv>=1.0.0",
+        "PyJWT>=2.8.0",
+        "pandas>=2.2.0",
+        "typeguard",
     ],
     author="Jack Zhangr",
     author_email="jack@visuallayer.com",
