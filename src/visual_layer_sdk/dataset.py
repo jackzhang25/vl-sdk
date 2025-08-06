@@ -492,7 +492,6 @@ class Dataset:
 
             return result
 
-        # Form the VQL for label search (keep op hardcoded as 'one_of')
         vql = [{"id": "label_filter", "labels": {"op": search_operator.value, "value": labels}}]
 
         # Step 1: Start async search and get initial status using the general VQL function

@@ -363,17 +363,118 @@ def main():
     print("🚀 Initializing Visual Layer client...")
     client = VisualLayerClient(API_KEY, API_SECRET)
 
-    # Test dataset ID - using a dataset that should have images
-    test_dataset_id = "3972b3fc-1809-11ef-bb76-064432e0d220"
+    # Test dataset ID - using the new dataset
+    test_dataset_id = "bc41491e-78ae-11ef-ba4b-8a774758b536"
     test_image_path = "./sample/dog.jpeg"
 
     try:
-        print(f"\n🔍 Testing visual search for dataset: {test_dataset_id}")
+        print(f"\n🔍 Testing VQL search for dataset: {test_dataset_id}")
         print(f"📸 Using test image: {test_image_path}")
 
         # Get dataset object
         dataset = client.get_dataset_object(test_dataset_id)
-        print(dataset.get_available_models())
+        print("Available models:", dataset.get_available_models())
+
+        # Test VQL search with the provided query
+        print("\n" + "=" * 60)
+        print("🔍 TESTING VQL SEARCH")
+        print("=" * 60)
+
+        # VQL query for outliers issue
+        vql_outliers_query = [{"issues": {"op": "issue", "value": "outliers", "confidence_min": 0.5, "confidence_max": 0.9}}]
+
+        print("📋 VQL Query for Outliers:")
+        print(f"   - Issues: outliers (confidence: 0.5-0.9)")
+
+        try:
+            # Test VQL search with outliers issue
+            print("\n🔍 Testing VQL search with outliers issue...")
+            df_outliers = dataset.search_by_vql(vql_outliers_query, entity_type="IMAGES")
+
+            print(f"✅ VQL outliers search completed")
+            print(f"📊 Found {len(df_outliers)} images with outliers issues")
+
+            if len(df_outliers) > 0:
+                # Save results to CSV
+                csv_filename = "vql_outliers_search_results.csv"
+                df_outliers.to_csv(csv_filename, index=False)
+                print(f"💾 Results saved to {csv_filename}")
+
+                # Show first few results
+                print("\n📋 First 3 results:")
+                for idx, row in df_outliers.head(3).iterrows():
+                    print(f"  Image {idx+1}: {row.get('media_id', 'N/A')}")
+                    print(f"    Issues: {row.get('issues', 'N/A')}")
+                    print(f"    Labels: {row.get('image_labels', 'N/A')}")
+            else:
+                print("⚠️  No images found with outliers issues")
+
+        except Exception as e:
+            print(f"❌ Error with VQL outliers search: {str(e)}")
+            import traceback
+
+            traceback.print_exc()
+
+        # Test labels search for "healthy"
+        try:
+            print("\n🔍 Testing labels search for 'healthy'...")
+            df_healthy = dataset.search_by_labels(["healthy"], entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF)
+
+            print(f"✅ Labels search for 'healthy' completed")
+            print(f"📊 Found {len(df_healthy)} images with 'healthy' labels")
+
+            if len(df_healthy) > 0:
+                # Save results to CSV
+                csv_filename = "healthy_labels_search_results.csv"
+                df_healthy.to_csv(csv_filename, index=False)
+                print(f"💾 Results saved to {csv_filename}")
+
+                # Show first few results
+                print("\n📋 First 3 results:")
+                for idx, row in df_healthy.head(3).iterrows():
+                    print(f"  Image {idx+1}: {row.get('media_id', 'N/A')}")
+                    print(f"    Labels: {row.get('image_labels', 'N/A')}")
+                    print(f"    Issues: {row.get('issues', 'N/A')}")
+            else:
+                print("⚠️  No images found with 'healthy' labels")
+
+        except Exception as e:
+            print(f"❌ Error with labels search: {str(e)}")
+            import traceback
+
+            traceback.print_exc()
+
+        # Test combined VQL query (healthy labels AND outliers issues)
+        try:
+            print("\n🔍 Testing combined VQL query (healthy + outliers)...")
+            combined_vql = vql_outliers_query + [{"id": "label_filter", "labels": {"op": "one_of", "value": ["healthy"]}}]
+
+            df_combined = dataset.search_by_vql(combined_vql, entity_type="IMAGES")
+
+            print(f"✅ Combined VQL search completed")
+            print(f"📊 Found {len(df_combined)} images with 'healthy' labels AND outliers issues")
+
+            if len(df_combined) > 0:
+                # Save results to CSV
+                csv_filename = "healthy_outliers_combined_results.csv"
+                df_combined.to_csv(csv_filename, index=False)
+                print(f"💾 Results saved to {csv_filename}")
+
+                # Show first few results
+                print("\n📋 First 3 results:")
+                for idx, row in df_combined.head(3).iterrows():
+                    print(f"  Image {idx+1}: {row.get('media_id', 'N/A')}")
+                    print(f"    Labels: {row.get('image_labels', 'N/A')}")
+                    print(f"    Issues: {row.get('issues', 'N/A')}")
+            else:
+                print("⚠️  No images found with both 'healthy' labels and outliers issues")
+
+        except Exception as e:
+            print(f"❌ Error with combined VQL search: {str(e)}")
+            import traceback
+
+            traceback.print_exc()
+
         # Check if test image exists
         if not os.path.exists(test_image_path):
             print(f"❌ Test image not found: {test_image_path}")
@@ -411,9 +512,12 @@ def main():
 
         # Summary
         print("\n" + "=" * 60)
-        print("📊 VISUAL SEARCH TEST SUMMARY")
+        print("📊 SEARCH TEST SUMMARY")
         print("=" * 60)
-        print("✅ Tested visual search with thresholds: 0.7, 0.8, 0.9")
+        print("✅ Tested VQL search with outliers issues")
+        print("✅ Tested labels search for 'healthy'")
+        print("✅ Tested combined VQL search (healthy + outliers)")
+        print("✅ Tested visual search with thresholds: 0.1-0.9")
         print("📁 Results saved to CSV files")
         print("🔍 Check individual CSV files for detailed results")
 
@@ -427,7 +531,7 @@ def main():
         except (ValueError, Exception):
             print("Could not parse error response as JSON")
     except Exception as e:
-        print(f"❌ Error with visual search test: {str(e)}")
+        print(f"❌ Error with search test: {str(e)}")
         import traceback
 
         traceback.print_exc()

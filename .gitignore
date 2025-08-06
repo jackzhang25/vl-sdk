@@ -22,7 +22,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-
+.coverage
 # Prompting
 swagger.json
 prompt
