@@ -60,6 +60,11 @@ class Dataset:
         # Validate that the dataset exists
         self._validate_dataset_exists()
 
+        # Create the single Searchable object for this dataset
+        from .searchable_dataset import Searchable
+
+        self.searchable = Searchable(self, [])
+
     def _validate_dataset_exists(self):
         """Validate that the dataset exists by calling the get_details API"""
         try:
@@ -255,411 +260,26 @@ class Dataset:
     @typechecked
     def search(self) -> Searchable:
         """
-        Create a Searchable object for chaining search operations.
+        Get the Searchable object for this dataset to perform search operations.
 
         Returns:
-            Searchable: A Searchable object that can be used to chain search operations
+            Searchable: The Searchable object that can be used to chain search operations
 
         Examples:
             searchable = dataset.search()
             results = searchable.search_by_labels(["cat"]).search_by_captions(["sitting"]).get_results()
+
+            # Reset and start a new search
+            dataset.search().reset()
+            new_results = dataset.search().search_by_issues([IssueType.BLUR]).get_results()
         """
-        return Searchable(self, [])
-
-    @typechecked
-    def search_by_visual_similarity(self, image_path, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF, threshold: float = 0.8) -> Searchable:
-        """
-        Search dataset by visual similarity for one or more images and return a Searchable object for chaining.
-
-        Args:
-            image_path (str or List[str]): Path(s) to the image file(s) to use as anchor(s)
-            entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
-            search_operator (SearchOperator): Search operator for visual similarity (default: SearchOperator.IS_ONE_OF)
-            threshold (float): Similarity threshold between 0.0 and 1.0 (default: 0.8)
-                             Lower values = more restrictive (fewer results)
-                             Higher values = less restrictive (more results)
-                             Recommended range: 0.2-0.8
-
-        Returns:
-            Searchable: Searchable object for chaining additional search criteria
-
-        Raises:
-            ValueError: If image_path is not provided or threshold is outside valid range (0.0-1.0)
-
-        Examples:
-            searchable = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, threshold=0.5)
-            results = searchable.get_results()  # Get DataFrame results
-        """
-        # Validate threshold range
-        if not isinstance(threshold, (int, float)) or threshold < 0.0 or threshold > 1.0:
-            raise ValueError(f"threshold must be a float between 0.0 and 1.0, got {threshold}")
-
-        # Warn for very restrictive thresholds that might return no results
-        if threshold < 0.2:
-            self.logger.warning(f"Very low threshold ({threshold}) may return no results. Consider using 0.2-0.8 for better results.")
-
-        # Warn for very permissive thresholds that might cause performance issues
-        if threshold > 0.9:
-            self.logger.warning(f"Very high threshold ({threshold}) may cause connection timeouts. Consider using 0.2-0.8 for better performance.")
-        if isinstance(search_operator, str):
-            try:
-                search_operator = SearchOperator(search_operator)
-            except ValueError:
-                self.logger.warning(f"Invalid search_operator for visual similarity: {search_operator}")
-                return Searchable(self, [])
-        if search_operator == SearchOperator.IS and len(image_path) == 1:
-            search_operator = SearchOperator.IS_ONE_OF
-        elif search_operator != SearchOperator.IS_ONE_OF:
-            self.logger.warning(f"Search operator {search_operator} is not implemented for visual similarity.")
-            return Searchable(self, [])
-
-        if isinstance(image_path, list):
-            # For multiple images, we'll need to handle this differently
-            # For now, we'll use the first image and create a Searchable
-            # In a real implementation, you might want to handle multiple images differently
-            if len(image_path) > 0:
-                return self.search_by_visual_similarity(image_path[0], entity_type, search_operator, threshold)
-            else:
-                return Searchable(self, [])
-
-        # Single image path (original behavior)
-        # Get media_id from image file upload
-        upload_result = self._search_by_image_file(image_path=image_path)
-        media_id = upload_result.get("anchor_media_id")
-        if not media_id:
-            raise ValueError("Failed to get anchor_media_id from image upload")
-        # Form the VQL for visual similarity search
-        vql = [{"id": "similarity_search", "similarity": {"op": "upload", "value": media_id, "threshold": threshold}}]
-
-        # Return Searchable object with the VQL query
-        return Searchable(self, vql)
-
-    @typechecked
-    def search_by_captions(self, captions: List[str] | str, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS) -> Searchable:
-        """
-        Search dataset by captions using VQL and return a Searchable object for chaining.
-
-        Args:
-            captions (List[str]): List of text strings to search in captions (will be combined into one search string)
-            entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
-            search_operator (SearchOperator): Search operator for captions (default: SearchOperator.IS)
-
-        Returns:
-            Searchable: Searchable object for chaining additional search criteria
-
-        Examples:
-            searchable = dataset.search_by_captions(["cat", "sitting"], "IMAGES", search_operator=SearchOperator.IS)
-            results = searchable.get_results()  # Get DataFrame results
-        """
-        # Check if captions search is enabled in user config
-        user_config = self._get_user_config()
-        if not user_config.get("captions_search", False):
-            self.logger.warning("Caption search is not enabled for this dataset.")
-            return Searchable(self, [])
-
-        if isinstance(captions, str):
-            captions = [captions]
-        elif not isinstance(captions, list):
-            raise ValueError(f"captions must be a list of strings, got {type(captions).__name__}")
-
-        if isinstance(search_operator, str):
-            try:
-                search_operator = SearchOperator(search_operator)
-            except ValueError:
-                raise ValueError(f"Invalid search_operator for captions: {search_operator}")
-
-        # Handle IS_NOT_ONE_OF operator by getting all images and removing IS_ONE_OF results
-        if search_operator == SearchOperator.IS_NOT_ONE_OF:
-            # Get all images in the dataset
-            all_images = self.export_to_dataframe()
-            if all_images.empty:
-                return Searchable(self, [])
-
-            # Get the images that match any of the captions (IS_ONE_OF logic)
-            matching_searchable = self.search_by_captions(captions, entity_type, SearchOperator.IS_ONE_OF)
-            matching_images = matching_searchable.get_results()
-
-            # Remove matching images from all images
-            if not matching_images.empty:
-                result = all_images[~all_images["media_id"].isin(matching_images["media_id"])]
-            else:
-                result = all_images
-
-            # Create a Searchable with the filtered results
-            # For now, we'll return an empty Searchable since we can't easily convert back to VQL
-            return Searchable(self, [])
-
-        # Handle IS_NOT operator by getting all images and removing IS results
-        if search_operator == SearchOperator.IS_NOT:
-            # Get all images in the dataset
-            all_images = self.export_to_dataframe()
-            if all_images.empty:
-                return Searchable(self, [])
-
-            # Get the images that match all captions combined (IS logic)
-            matching_searchable = self.search_by_captions(captions, entity_type, SearchOperator.IS)
-            matching_images = matching_searchable.get_results()
-
-            # Remove matching images from all images
-            if not matching_images.empty:
-                result = all_images[~all_images["media_id"].isin(matching_images["media_id"])]
-            else:
-                result = all_images
-
-            # Create a Searchable with the filtered results
-            # For now, we'll return an empty Searchable since we can't easily convert back to VQL
-            return Searchable(self, [])
-
-        # Handle IS_ONE_OF operator by creating multiple VQL filters
-        if search_operator == SearchOperator.IS_ONE_OF:
-            vql_filters = []
-            for caption in captions:
-                # Create VQL for single caption
-                vql_filter = {"text": {"op": "fts", "value": caption}}
-                vql_filters.append(vql_filter)
-
-            # Return Searchable with multiple VQL filters
-            return Searchable(self, vql_filters)
-
-        # Handle other operators (existing logic)
-        if search_operator != SearchOperator.IS:
-            self.logger.warning(f"Search operator {search_operator} is not implemented for captions yet.")
-            return Searchable(self, [])
-
-        # Combine all captions into one search string for IS operator
-        combined_text = " ".join(captions)
-
-        # Form the VQL for caption search (keep op hardcoded as 'fts')
-        vql = [{"text": {"op": "fts", "value": combined_text}}]
-
-        # Return Searchable object with the VQL query
-        return Searchable(self, vql)
-
-    @typechecked
-    def search_by_labels(self, labels: List[str] | str, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF) -> Searchable:
-        """
-        Search dataset by labels using VQL and return a Searchable object for chaining.
-
-        Args:
-            labels (List[str]): List of labels to search for
-            entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
-            search_operator (SearchOperator): Search operator for labels (default: SearchOperator.IS_ONE_OF)
-
-        Returns:
-            Searchable: Searchable object for chaining additional search criteria
-
-        Examples:
-            searchable = dataset.search_by_labels(["cat", "dog"], "IMAGES", search_operator=SearchOperator.IS_ONE_OF)
-            results = searchable.get_results()  # Get DataFrame results
-        """
-        # Check if labels search is enabled in user config
-        user_config = self._get_user_config()
-        if not user_config.get("labels_search", False):
-            self.logger.warning("Label search is not enabled for this dataset.")
-            return Searchable(self, [])
-
-        if isinstance(labels, str):
-            labels = [labels]
-        elif not isinstance(labels, list):
-            raise ValueError(f"labels must be a list of strings, got {type(labels).__name__}")
-
-        if isinstance(search_operator, str):
-            try:
-                search_operator = SearchOperator(search_operator)
-            except ValueError:
-                raise ValueError(f"Invalid search_operator for labels: {search_operator}")
-
-        # Handle IS_NOT_ONE_OF operator by getting all images and removing IS_ONE_OF results
-        if search_operator == SearchOperator.IS_NOT_ONE_OF:
-            # Get all images in the dataset
-            all_images = self.export_to_dataframe()
-            if all_images.empty:
-                return Searchable(self, [])
-
-            # Get the images that match any of the labels (IS_ONE_OF logic)
-            matching_searchable = self.search_by_labels(labels, entity_type, SearchOperator.IS_ONE_OF)
-            matching_images = matching_searchable.get_results()
-
-            # Remove matching images from all images
-            if not matching_images.empty:
-                result = all_images[~all_images["media_id"].isin(matching_images["media_id"])]
-            else:
-                result = all_images
-
-            # Create a Searchable with the filtered results
-            # For now, we'll return an empty Searchable since we can't easily convert back to VQL
-            return Searchable(self, [])
-
-        # Handle IS_NOT operator by getting all images and removing IS results
-        if search_operator == SearchOperator.IS_NOT:
-            # Get all images in the dataset
-            all_images = self.export_to_dataframe()
-            if all_images.empty:
-                return Searchable(self, [])
-
-            # Get the images that match all labels combined (IS logic)
-            matching_searchable = self.search_by_labels(labels, entity_type, SearchOperator.IS)
-            matching_images = matching_searchable.get_results()
-
-            # Remove matching images from all images
-            if not matching_images.empty:
-                result = all_images[~all_images["media_id"].isin(matching_images["media_id"])]
-            else:
-                result = all_images
-
-            # Create a Searchable with the filtered results
-            # For now, we'll return an empty Searchable since we can't easily convert back to VQL
-            return Searchable(self, [])
-
-        vql = [{"id": "label_filter", "labels": {"op": search_operator.value, "value": labels}}]
-
-        # Return Searchable object with the VQL query
-        return Searchable(self, vql)
-
-    @typechecked
-    def search_by_issues(
-        self,
-        issue_type: "IssueType | List[IssueType]" = None,
-        entity_type: str = "IMAGES",
-        search_operator: "SearchOperator" = SearchOperator.IS,
-        confidence_min: float = 0.8,
-        confidence_max: float = 1.0,
-    ) -> Searchable:
-        """
-        Search dataset by one or more issues using VQL and return a Searchable object for chaining.
-
-        Args:
-            issue_type (IssueType or List[IssueType]): Issue type(s) to search for (e.g., IssueType.BLUR, IssueType.DARK, IssueType.OUTLIERS)
-            entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
-            search_operator (SearchOperator): Search operator for issues (default: SearchOperator.IS)
-            confidence_min (float): Minimum confidence threshold (default: 0.8)
-            confidence_max (float): Maximum confidence threshold (default: 1.0)
-
-        Returns:
-            Searchable: Searchable object for chaining additional search criteria
-
-        Examples:
-            searchable = dataset.search_by_issues(issue_type=[IssueType.BLUR, IssueType.OUTLIERS], entity_type="IMAGES", search_operator=SearchOperator.IS, confidence_min=0.5, confidence_max=1.0)
-            results = searchable.get_results()  # Get DataFrame results
-        """
-        if not issue_type:
-            raise ValueError("issue_type must be provided")
-
-        if isinstance(search_operator, str):
-            try:
-                search_operator = SearchOperator(search_operator)
-            except ValueError:
-                self.logger.warning(f"Invalid search_operator for issues: {search_operator}")
-                return Searchable(self, [])
-
-        if not isinstance(issue_type, list):
-            issue_type = [issue_type]
-
-        # Handle IS_NOT operator by getting all images and removing IS results
-        if search_operator == SearchOperator.IS_NOT:
-            # Get all images in the dataset
-            all_images = self.export_to_dataframe()
-            if all_images.empty:
-                return Searchable(self, [])
-
-            # Get the images that match all issue types combined (IS logic)
-            matching_searchable = self.search_by_issues(issue_type, entity_type, SearchOperator.IS, confidence_min, confidence_max)
-            matching_images = matching_searchable.get_results()
-
-            # Remove matching images from all images
-            if not matching_images.empty:
-                result = all_images[~all_images["media_id"].isin(matching_images["media_id"])]
-            else:
-                result = all_images
-
-            # Create a Searchable with the filtered results
-            # For now, we'll return an empty Searchable since we can't easily convert back to VQL
-            return Searchable(self, [])
-
-        # Handle IS_ONE_OF operator by creating multiple VQL filters
-        if search_operator == SearchOperator.IS_ONE_OF:
-            vql_filters = []
-            for it in issue_type:
-                # Create VQL for single issue type
-                issue_type_str = it.value
-                if issue_type_str not in ALLOWED_ISSUE_NAMES:
-                    self.logger.warning(f"Invalid issue type '{issue_type_str}'. Allowed types: {list(ALLOWED_ISSUE_NAMES)}")
-                    continue
-
-                vql_filter = {"issues": {"op": "issue", "value": issue_type_str, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": "in"}}
-                vql_filters.append(vql_filter)
-
-            # Return Searchable with multiple VQL filters
-            return Searchable(self, vql_filters)
-
-        # Handle other operators (existing logic)
-        mode = "in"
-        if search_operator == SearchOperator.IS_NOT_ONE_OF:
-            mode = "out"
-        elif search_operator == SearchOperator.IS_NOT and len(issue_type) == 1:
-            mode = "out"
-        elif search_operator == SearchOperator.IS:
-            mode = "in"
-        else:
-            self.logger.warning(f"Search operator {search_operator} is not implemented for issues yet.")
-            return Searchable(self, [])
-
-        # Accept a single IssueType or a list of IssueTypes
-        if isinstance(issue_type, list):
-            issue_types = issue_type
-        else:
-            issue_types = [issue_type]
-
-        vql = []
-        for it in issue_types:
-            issue_type_str = it.value
-            if issue_type_str not in ALLOWED_ISSUE_NAMES:
-                self.logger.warning(f"Invalid issue type '{issue_type_str}'. Allowed types: {list(ALLOWED_ISSUE_NAMES)}")
-                return Searchable(self, [])
-            vql.append({"issues": {"op": "issue", "value": issue_type_str, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": mode}})
-
-        # Return Searchable object with the VQL query
-        return Searchable(self, vql)
-
-    @typechecked
-    def search_by_semantic(self, text: str, entity_type: str = "IMAGES", relevance: "SemanticRelevance" = SemanticRelevance.MEDIUM_RELEVANCE) -> Searchable:
-        """
-        Search dataset by semantic similarity using VQL and return a Searchable object for chaining.
-
-        Args:
-            text (str): Text string to search for semantic similarity
-            entity_type (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
-            relevance (SemanticRelevance): Relevance level for semantic search (default: MEDIUM_RELEVANCE)
-
-        Returns:
-            Searchable: Searchable object for chaining additional search criteria
-
-        Examples:
-            searchable = dataset.search_by_semantic("people walking on the beach", "IMAGES", relevance=SemanticRelevance.HIGH_RELEVANCE)
-            results = searchable.get_results()  # Get DataFrame results
-        """
-        # Check if semantic search is enabled in user config
-        user_config = self._get_user_config()
-        if not user_config.get("semantic_search", False):
-            self.logger.warning("Semantic search is not enabled for this dataset.")
-            return Searchable(self, [])
-
-        if not text or not isinstance(text, str):
-            raise ValueError("text must be a non-empty string")
-
-        # Get threshold value from the enum
-        threshold = relevance.value
-
-        # Form the VQL for semantic search
-        vql = [{"id": str(uuid.uuid4()), "text": {"op": "semantic", "value": text, "threshold": threshold}}]
-
-        # Return Searchable object with the VQL query
-        return Searchable(self, vql)
+        return self.searchable
 
     @typechecked
     def search_by_vql(self, vql: List[dict], entity_type: str = "IMAGES") -> pd.DataFrame:
         """
         Search dataset using custom VQL (Visual Query Language) asynchronously, poll until export is ready, download the results, and return as a DataFrame.
+        This method is used internally by the Searchable object.
 
         Args:
             vql (List[dict]): VQL query structure as a list of filter objects
@@ -729,10 +349,115 @@ class Dataset:
             self.logger.error(f"VQL search failed: {str(e)}")
             raise
 
+    def _search_by_image_file(self, image_path: str, allow_deleted: bool = False) -> dict:
+        """
+        Upload an image file and get the anchor media ID for similarity search.
+        This method is used internally by the Searchable object.
+
+        Args:
+            image_path (str): Path to the image file (JPEG, PNG, etc.)
+            allow_deleted (bool): Whether to include deleted images in search (default: False)
+
+        Returns:
+            dict: Dictionary with anchor_media_id and anchor_type
+
+        Examples:
+            result = dataset._search_by_image_file("/path/to/image.jpg")
+        """
+        import os
+        from pathlib import Path
+
+        # Validate file exists
+        if not os.path.exists(image_path):
+            raise ValueError(f"Image file not found: {image_path}")
+
+        # Get file info
+        file_path = Path(image_path)
+        if not file_path.is_file():
+            raise ValueError(f"Path is not a file: {image_path}")
+
+        # Determine content type
+        content_type = "image/jpeg"  # Default
+        if file_path.suffix.lower() in [".png"]:
+            content_type = "image/png"
+        elif file_path.suffix.lower() in [".jpg", ".jpeg"]:
+            content_type = "image/jpeg"
+
+        url = f"{self.base_url}/dataset/{self.dataset_id}/search-image-similarity"
+        params = {"allow_deleted": allow_deleted}
+
+        try:
+            self.logger.info(f"Uploading image file for similarity search: {image_path}")
+
+            # Prepare multipart form data
+            with open(image_path, "rb") as file:
+                files = {"file": (file_path.name, file, content_type)}
+
+                # Remove Content-Type header to let requests set it for multipart
+                headers = self.client._get_headers()
+                headers.pop("Content-Type", None)
+
+                self.logger.debug(f"URL: {url}")
+                self.logger.debug(f"Params: {params}")
+                self.logger.debug(f"Headers: {headers}")
+                self.logger.debug(f"File: {file_path.name}, Content-Type: {content_type}")
+
+                response = self.client.session.post(url, headers=headers, params=params, files=files)
+
+                self.logger.debug(f"Response status: {response.status_code}")
+                self.logger.debug(f"Response headers: {dict(response.headers)}")
+
+                if response.status_code != 200:
+                    self.logger.debug(f"Response text: {response.text}")
+
+                response.raise_for_status()
+                result = response.json()
+
+                self.logger.success("Image similarity search completed successfully")
+                return result
+
+        except Exception as e:
+            self.logger.error(f"Image similarity search failed: {str(e)}")
+            raise
+
+    def _get_user_config(self) -> dict:
+        """
+        Get the user config for this dataset from the /user_config endpoint.
+        This method is used internally by the Searchable object.
+
+        Returns:
+            dict: {"labels_search": bool or None, "captions_search": bool or None, "semantic_search": bool or None}
+        """
+        url = f"{self.base_url}/user_config"
+        params = {"dataset_id": self.dataset_id}
+        headers = self.client._get_headers()
+        response = self.client.session.get(url, params=params, headers=headers)
+        response.raise_for_status()
+        full_response = response.json()
+
+        labels_search = None
+        captions_search = None
+        semantic_search = None
+        features = full_response.get("features", [])
+        for feature in features:
+            if feature.get("feature_key") == "TEXTUAL_SEARCH_IMAGE":
+                options = feature.get("feature_options", {})
+                labels_search = options.get("labels_search")
+                captions_search = options.get("captions_search")
+                semantic_search = options.get("semantic_search")
+                break
+
+        return {
+            "labels_search": labels_search,
+            "captions_search": captions_search,
+            "semantic_search": semantic_search,
+        }
+
     def _download_export_results(self, download_uri: str) -> dict:
         """
         Download the export results from the provided URI.
         Handles both ZIP (with JSON inside) and direct JSON responses.
+        This method is used internally by the Searchable object.
 
         Args:
             download_uri (str): The download URI from the export status response
@@ -807,80 +532,11 @@ class Dataset:
             self.logger.error(f"Export download failed: {str(e)}")
             raise
 
-    def _search_by_image_file(self, image_path: str, allow_deleted: bool = False) -> dict:
-        """
-        Upload an image file and get the anchor media ID for similarity search.
-
-        Args:
-            image_path (str): Path to the image file (JPEG, PNG, etc.)
-            allow_deleted (bool): Whether to include deleted images in search (default: False)
-
-        Returns:
-            dict: Dictionary with anchor_media_id and anchor_type
-
-        Examples:
-            result = dataset._search_by_image_file("/path/to/image.jpg")
-        """
-        import os
-        from pathlib import Path
-
-        # Validate file exists
-        if not os.path.exists(image_path):
-            raise ValueError(f"Image file not found: {image_path}")
-
-        # Get file info
-        file_path = Path(image_path)
-        if not file_path.is_file():
-            raise ValueError(f"Path is not a file: {image_path}")
-
-        # Determine content type
-        content_type = "image/jpeg"  # Default
-        if file_path.suffix.lower() in [".png"]:
-            content_type = "image/png"
-        elif file_path.suffix.lower() in [".jpg", ".jpeg"]:
-            content_type = "image/jpeg"
-
-        url = f"{self.base_url}/dataset/{self.dataset_id}/search-image-similarity"
-        params = {"allow_deleted": allow_deleted}
-
-        try:
-            self.logger.info(f"Uploading image file for similarity search: {image_path}")
-
-            # Prepare multipart form data
-            with open(image_path, "rb") as file:
-                files = {"file": (file_path.name, file, content_type)}
-
-                # Remove Content-Type header to let requests set it for multipart
-                headers = self.client._get_headers()
-                headers.pop("Content-Type", None)
-
-                self.logger.debug(f"URL: {url}")
-                self.logger.debug(f"Params: {params}")
-                self.logger.debug(f"Headers: {headers}")
-                self.logger.debug(f"File: {file_path.name}, Content-Type: {content_type}")
-
-                response = self.client.session.post(url, headers=headers, params=params, files=files)
-
-                self.logger.debug(f"Response status: {response.status_code}")
-                self.logger.debug(f"Response headers: {dict(response.headers)}")
-
-                if response.status_code != 200:
-                    self.logger.debug(f"Response text: {response.text}")
-
-                response.raise_for_status()
-                result = response.json()
-
-                self.logger.success("Image similarity search completed successfully")
-                return result
-
-        except Exception as e:
-            self.logger.error(f"Image similarity search failed: {str(e)}")
-            raise
-
     def _process_export_download_to_dataframe(self, download_uri: str) -> pd.DataFrame:
         """
         Download the export results from the provided URI and flatten to a DataFrame.
         Can be used by any async search function that returns a download_uri.
+        This method is used internally by the Searchable object.
 
         Args:
             download_uri (str): The download URI from the export status response
@@ -936,39 +592,6 @@ class Dataset:
         df = pd.DataFrame(processed_items)
         self.logger.export_completed(self.dataset_id, len(df))
         return df
-
-    def _get_user_config(self) -> dict:
-        """
-        Get the user config for this dataset from the /user_config endpoint.
-        Returns a dict with 'labels_search' and 'captions_search' from the TEXTUAL_SEARCH_IMAGE feature, plus the raw response.
-
-        Returns:
-            dict: {"labels_search": bool or None, "captions_search": bool or None, "raw": full_response}
-        """
-        url = f"{self.base_url}/user_config"
-        params = {"dataset_id": self.dataset_id}
-        headers = self.client._get_headers()
-        response = self.client.session.get(url, params=params, headers=headers)
-        response.raise_for_status()
-        full_response = response.json()
-
-        labels_search = None
-        captions_search = None
-        semantic_search = None
-        features = full_response.get("features", [])
-        for feature in features:
-            if feature.get("feature_key") == "TEXTUAL_SEARCH_IMAGE":
-                options = feature.get("feature_options", {})
-                labels_search = options.get("labels_search")
-                captions_search = options.get("captions_search")
-                semantic_search = options.get("semantic_search")
-                break
-
-        return {
-            "labels_search": labels_search,
-            "captions_search": captions_search,
-            "semantic_search": semantic_search,
-        }
 
     @typechecked
     def get_available_models(self) -> list:

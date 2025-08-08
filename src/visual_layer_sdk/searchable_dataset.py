@@ -73,6 +73,12 @@ class Searchable:
         Returns:
             New Searchable with updated query
         """
+        # Check if labels search is enabled in user config
+        user_config = self.original_dataset._get_user_config()
+        if not user_config.get("labels_search", False):
+            self.original_dataset.logger.warning("Label search is not enabled for this dataset.")
+            return self
+
         if isinstance(labels, str):
             labels = [labels]
 
@@ -104,6 +110,12 @@ class Searchable:
         Returns:
             New Searchable with updated query
         """
+        # Check if captions search is enabled in user config
+        user_config = self.original_dataset._get_user_config()
+        if not user_config.get("captions_search", False):
+            self.original_dataset.logger.warning("Caption search is not enabled for this dataset.")
+            return self
+
         if isinstance(captions, str):
             captions = [captions]
 
@@ -148,19 +160,43 @@ class Searchable:
         Returns:
             New Searchable with updated query
         """
+        if not issue_type:
+            raise ValueError("issue_type must be provided")
+
         if not isinstance(issue_type, list):
             issue_type = [issue_type]
 
         # Import here to avoid circular import
-        from .dataset import SearchOperator
+        from .dataset import SearchOperator, ALLOWED_ISSUE_NAMES
 
         if search_operator is None:
             search_operator = SearchOperator.IS
 
+        if isinstance(search_operator, str):
+            try:
+                search_operator = SearchOperator(search_operator)
+            except ValueError:
+                self.original_dataset.logger.warning(f"Invalid search_operator for issues: {search_operator}")
+                return self
+
         new_vql = self.vql_query.copy()
 
         for it in issue_type:
-            issue_filter = {"issues": {"op": "issue", "value": it.value, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": "in" if search_operator.value == "is" else "out"}}
+            issue_type_str = it.value
+            if issue_type_str not in ALLOWED_ISSUE_NAMES:
+                self.original_dataset.logger.warning(f"Invalid issue type '{issue_type_str}'. Allowed types: {list(ALLOWED_ISSUE_NAMES)}")
+                return self
+
+            # Special handling for duplicates - uses different VQL format
+            if issue_type_str == "duplicates":
+                # Duplicates use a threshold value (0.995 is a good default for high confidence duplicates)
+                threshold = confidence_min if confidence_min > 0.9 else 0.995
+                issue_filter = {"id": str(uuid.uuid4()), "duplicates": {"op": "duplicates", "value": threshold}}
+            else:
+                # Standard issue format for other issue types
+                issue_filter = {
+                    "issues": {"op": "issue", "value": issue_type_str, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": "in" if search_operator.value == "is" else "out"}
+                }
             new_vql.append(issue_filter)
 
         new_searchable = Searchable(self.original_dataset, new_vql)
@@ -182,6 +218,15 @@ class Searchable:
         Returns:
             New Searchable with updated query
         """
+        # Check if semantic search is enabled in user config
+        user_config = self.original_dataset._get_user_config()
+        if not user_config.get("semantic_search", False):
+            self.original_dataset.logger.warning("Semantic search is not enabled for this dataset.")
+            return self
+
+        if not text or not isinstance(text, str):
+            raise ValueError("text must be a non-empty string")
+
         # Import here to avoid circular import
         from .dataset import SemanticRelevance
 
@@ -206,16 +251,42 @@ class Searchable:
         Args:
             image_path: Path to the reference image
             search_operator: Search operator to use
-            threshold: Similarity threshold
+            threshold: Similarity threshold between 0.0 and 1.0 (default: 0.8)
+                      Lower values = more restrictive (fewer results)
+                      Higher values = less restrictive (more results)
+                      Recommended range: 0.2-0.8
 
         Returns:
             New Searchable with updated query
         """
+        # Validate threshold range
+        if not isinstance(threshold, (int, float)) or threshold < 0.0 or threshold > 1.0:
+            raise ValueError(f"threshold must be a float between 0.0 and 1.0, got {threshold}")
+
+        # Warn for very restrictive thresholds that might return no results
+        if threshold < 0.2:
+            self.original_dataset.logger.warning(f"Very low threshold ({threshold}) may return no results. Consider using 0.2-0.8 for better results.")
+
+        # Warn for very permissive thresholds that might cause performance issues
+        if threshold > 0.9:
+            self.original_dataset.logger.warning(f"Very high threshold ({threshold}) may cause connection timeouts. Consider using 0.2-0.8 for better performance.")
+
         # Import here to avoid circular import
         from .dataset import SearchOperator
 
         if search_operator is None:
             search_operator = SearchOperator.IS_ONE_OF
+
+        if isinstance(search_operator, str):
+            try:
+                search_operator = SearchOperator(search_operator)
+            except ValueError:
+                self.original_dataset.logger.warning(f"Invalid search_operator for visual similarity: {search_operator}")
+                return self
+
+        if search_operator != SearchOperator.IS_ONE_OF:
+            self.original_dataset.logger.warning(f"Search operator {search_operator} is not implemented for visual similarity.")
+            return self
 
         # First upload the image to get media_id
         upload_result = self.original_dataset._search_by_image_file(image_path=image_path)
@@ -293,21 +364,19 @@ class Searchable:
         return raw_results
 
     # reset the results of eval. store datasframe after first call
-    def reset(self) -> "Searchable":
+    def reset(self) -> None:
         """
         Reset the query to empty (return to original dataset).
         This also clears any cached results.
+        Modifies the current Searchable object in place.
 
         Returns:
-            New Searchable with empty query and cleared cache
+            None
         """
-        new_searchable = Searchable(self.original_dataset, [])
-        # Preserve the searchable_id
-        new_searchable.searchable_id = self.searchable_id
+        self.vql_query = []
         # Clear cached results and count
-        new_searchable._cached_results = None
-        new_searchable._cached_count = None
-        return new_searchable
+        self._cached_results = None
+        self._cached_count = None
 
     def get_query(self) -> List[dict]:
         """
@@ -463,7 +532,7 @@ if __name__ == "__main__":
         # Add some filters
         searchable = searchable.search_by_labels(["healthy"])
         # Reset
-        searchable = searchable.reset()
+        searchable.reset()
         results = searchable.get_results()
         print(f"✅ Reset functionality: Found {len(results)} images (should be all images)")
     except Exception as e:
