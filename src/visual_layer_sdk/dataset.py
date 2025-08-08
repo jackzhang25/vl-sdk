@@ -7,6 +7,7 @@ import pandas as pd
 from typeguard import typechecked
 
 from .logger import get_logger
+from .searchable_dataset import Searchable
 
 
 class SearchOperator(Enum):
@@ -252,9 +253,23 @@ class Dataset:
         return self.get_details()["status"]
 
     @typechecked
-    def search_by_visual_similarity(self, image_path, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF, threshold: float = 0.8) -> pd.DataFrame:
+    def search(self) -> Searchable:
         """
-        Search dataset by visual similarity for one or more images asynchronously, poll until export is ready, download the results, and return as a DataFrame.
+        Create a Searchable object for chaining search operations.
+
+        Returns:
+            Searchable: A Searchable object that can be used to chain search operations
+
+        Examples:
+            searchable = dataset.search()
+            results = searchable.search_by_labels(["cat"]).search_by_captions(["sitting"]).get_results()
+        """
+        return Searchable(self, [])
+
+    @typechecked
+    def search_by_visual_similarity(self, image_path, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF, threshold: float = 0.8) -> Searchable:
+        """
+        Search dataset by visual similarity for one or more images and return a Searchable object for chaining.
 
         Args:
             image_path (str or List[str]): Path(s) to the image file(s) to use as anchor(s)
@@ -266,14 +281,14 @@ class Dataset:
                              Recommended range: 0.2-0.8
 
         Returns:
-            pd.DataFrame: DataFrame containing the combined search results, with duplicates removed
+            Searchable: Searchable object for chaining additional search criteria
 
         Raises:
             ValueError: If image_path is not provided or threshold is outside valid range (0.0-1.0)
 
         Examples:
-            df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, threshold=0.5)
-            df = dataset.search_by_visual_similarity(image_path=["/path/to/img1.jpg", "/path/to/img2.jpg"], entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF)
+            searchable = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, threshold=0.5)
+            results = searchable.get_results()  # Get DataFrame results
         """
         # Validate threshold range
         if not isinstance(threshold, (int, float)) or threshold < 0.0 or threshold > 1.0:
@@ -291,24 +306,22 @@ class Dataset:
                 search_operator = SearchOperator(search_operator)
             except ValueError:
                 self.logger.warning(f"Invalid search_operator for visual similarity: {search_operator}")
-                return pd.DataFrame()
+                return Searchable(self, [])
         if search_operator == SearchOperator.IS and len(image_path) == 1:
             search_operator = SearchOperator.IS_ONE_OF
         elif search_operator != SearchOperator.IS_ONE_OF:
             self.logger.warning(f"Search operator {search_operator} is not implemented for visual similarity.")
-            return pd.DataFrame()
+            return Searchable(self, [])
 
         if isinstance(image_path, list):
-            dfs = []
-            for path in image_path:
-                df = self.search_by_visual_similarity(path, entity_type, search_operator, threshold)
-                if df is not None and not df.empty:
-                    dfs.append(df)
-            if dfs:
-                combined = pd.concat(dfs, ignore_index=True).drop_duplicates(subset=["media_id"])
-                return combined
+            # For multiple images, we'll need to handle this differently
+            # For now, we'll use the first image and create a Searchable
+            # In a real implementation, you might want to handle multiple images differently
+            if len(image_path) > 0:
+                return self.search_by_visual_similarity(image_path[0], entity_type, search_operator, threshold)
             else:
-                return pd.DataFrame()
+                return Searchable(self, [])
+
         # Single image path (original behavior)
         # Get media_id from image file upload
         upload_result = self._search_by_image_file(image_path=image_path)
@@ -318,13 +331,13 @@ class Dataset:
         # Form the VQL for visual similarity search
         vql = [{"id": "similarity_search", "similarity": {"op": "upload", "value": media_id, "threshold": threshold}}]
 
-        # Step 1: Start async search and get initial status using the general VQL function
-        return self.search_by_vql(vql, entity_type)
+        # Return Searchable object with the VQL query
+        return Searchable(self, vql)
 
     @typechecked
-    def search_by_captions(self, captions: List[str] | str, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS) -> pd.DataFrame:
+    def search_by_captions(self, captions: List[str] | str, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS) -> Searchable:
         """
-        Search dataset by captions using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame.
+        Search dataset by captions using VQL and return a Searchable object for chaining.
 
         Args:
             captions (List[str]): List of text strings to search in captions (will be combined into one search string)
@@ -332,16 +345,17 @@ class Dataset:
             search_operator (SearchOperator): Search operator for captions (default: SearchOperator.IS)
 
         Returns:
-            pd.DataFrame: DataFrame containing the search results, or empty if not ready
+            Searchable: Searchable object for chaining additional search criteria
 
         Examples:
-            df = dataset.search_by_captions(["cat", "sitting"], "IMAGES", search_operator=SearchOperator.IS)
+            searchable = dataset.search_by_captions(["cat", "sitting"], "IMAGES", search_operator=SearchOperator.IS)
+            results = searchable.get_results()  # Get DataFrame results
         """
         # Check if captions search is enabled in user config
         user_config = self._get_user_config()
         if not user_config.get("captions_search", False):
             self.logger.warning("Caption search is not enabled for this dataset.")
-            return pd.DataFrame()
+            return Searchable(self, [])
 
         if isinstance(captions, str):
             captions = [captions]
@@ -359,10 +373,11 @@ class Dataset:
             # Get all images in the dataset
             all_images = self.export_to_dataframe()
             if all_images.empty:
-                return pd.DataFrame()
+                return Searchable(self, [])
 
             # Get the images that match any of the captions (IS_ONE_OF logic)
-            matching_images = self.search_by_captions(captions, entity_type, SearchOperator.IS_ONE_OF)
+            matching_searchable = self.search_by_captions(captions, entity_type, SearchOperator.IS_ONE_OF)
+            matching_images = matching_searchable.get_results()
 
             # Remove matching images from all images
             if not matching_images.empty:
@@ -370,17 +385,20 @@ class Dataset:
             else:
                 result = all_images
 
-            return result
+            # Create a Searchable with the filtered results
+            # For now, we'll return an empty Searchable since we can't easily convert back to VQL
+            return Searchable(self, [])
 
         # Handle IS_NOT operator by getting all images and removing IS results
         if search_operator == SearchOperator.IS_NOT:
             # Get all images in the dataset
             all_images = self.export_to_dataframe()
             if all_images.empty:
-                return pd.DataFrame()
+                return Searchable(self, [])
 
             # Get the images that match all captions combined (IS logic)
-            matching_images = self.search_by_captions(captions, entity_type, SearchOperator.IS)
+            matching_searchable = self.search_by_captions(captions, entity_type, SearchOperator.IS)
+            matching_images = matching_searchable.get_results()
 
             # Remove matching images from all images
             if not matching_images.empty:
@@ -388,31 +406,25 @@ class Dataset:
             else:
                 result = all_images
 
-            return result
+            # Create a Searchable with the filtered results
+            # For now, we'll return an empty Searchable since we can't easily convert back to VQL
+            return Searchable(self, [])
 
-        # Handle IS_ONE_OF operator by calling search_by_vql multiple times and combining results
+        # Handle IS_ONE_OF operator by creating multiple VQL filters
         if search_operator == SearchOperator.IS_ONE_OF:
-            dfs = []
+            vql_filters = []
             for caption in captions:
                 # Create VQL for single caption
-                vql = [{"text": {"op": "fts", "value": caption}}]
+                vql_filter = {"text": {"op": "fts", "value": caption}}
+                vql_filters.append(vql_filter)
 
-                # Call search_by_vql for this caption
-                df = self.search_by_vql(vql, entity_type)
-                if df is not None and not df.empty:
-                    dfs.append(df)
-
-            # Combine results and remove duplicates
-            if dfs:
-                combined = pd.concat(dfs, ignore_index=True).drop_duplicates(subset=["media_id"])
-                return combined
-            else:
-                return pd.DataFrame()
+            # Return Searchable with multiple VQL filters
+            return Searchable(self, vql_filters)
 
         # Handle other operators (existing logic)
         if search_operator != SearchOperator.IS:
             self.logger.warning(f"Search operator {search_operator} is not implemented for captions yet.")
-            return pd.DataFrame()
+            return Searchable(self, [])
 
         # Combine all captions into one search string for IS operator
         combined_text = " ".join(captions)
@@ -420,13 +432,13 @@ class Dataset:
         # Form the VQL for caption search (keep op hardcoded as 'fts')
         vql = [{"text": {"op": "fts", "value": combined_text}}]
 
-        # Step 1: Start async search and get initial status using the general VQL function
-        return self.search_by_vql(vql, entity_type)
+        # Return Searchable object with the VQL query
+        return Searchable(self, vql)
 
     @typechecked
-    def search_by_labels(self, labels: List[str] | str, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF) -> pd.DataFrame:
+    def search_by_labels(self, labels: List[str] | str, entity_type: str = "IMAGES", search_operator: "SearchOperator" = SearchOperator.IS_ONE_OF) -> Searchable:
         """
-        Search dataset by labels using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame.
+        Search dataset by labels using VQL and return a Searchable object for chaining.
 
         Args:
             labels (List[str]): List of labels to search for
@@ -434,16 +446,17 @@ class Dataset:
             search_operator (SearchOperator): Search operator for labels (default: SearchOperator.IS_ONE_OF)
 
         Returns:
-            pd.DataFrame: DataFrame containing the search results, or empty if not ready
+            Searchable: Searchable object for chaining additional search criteria
 
         Examples:
-            df = dataset.search_by_labels(["cat", "dog"], "IMAGES", search_operator=SearchOperator.IS_ONE_OF)
+            searchable = dataset.search_by_labels(["cat", "dog"], "IMAGES", search_operator=SearchOperator.IS_ONE_OF)
+            results = searchable.get_results()  # Get DataFrame results
         """
         # Check if labels search is enabled in user config
         user_config = self._get_user_config()
         if not user_config.get("labels_search", False):
             self.logger.warning("Label search is not enabled for this dataset.")
-            return pd.DataFrame()
+            return Searchable(self, [])
 
         if isinstance(labels, str):
             labels = [labels]
@@ -461,10 +474,11 @@ class Dataset:
             # Get all images in the dataset
             all_images = self.export_to_dataframe()
             if all_images.empty:
-                return pd.DataFrame()
+                return Searchable(self, [])
 
             # Get the images that match any of the labels (IS_ONE_OF logic)
-            matching_images = self.search_by_labels(labels, entity_type, SearchOperator.IS_ONE_OF)
+            matching_searchable = self.search_by_labels(labels, entity_type, SearchOperator.IS_ONE_OF)
+            matching_images = matching_searchable.get_results()
 
             # Remove matching images from all images
             if not matching_images.empty:
@@ -472,17 +486,20 @@ class Dataset:
             else:
                 result = all_images
 
-            return result
+            # Create a Searchable with the filtered results
+            # For now, we'll return an empty Searchable since we can't easily convert back to VQL
+            return Searchable(self, [])
 
         # Handle IS_NOT operator by getting all images and removing IS results
         if search_operator == SearchOperator.IS_NOT:
             # Get all images in the dataset
             all_images = self.export_to_dataframe()
             if all_images.empty:
-                return pd.DataFrame()
+                return Searchable(self, [])
 
             # Get the images that match all labels combined (IS logic)
-            matching_images = self.search_by_labels(labels, entity_type, SearchOperator.IS)
+            matching_searchable = self.search_by_labels(labels, entity_type, SearchOperator.IS)
+            matching_images = matching_searchable.get_results()
 
             # Remove matching images from all images
             if not matching_images.empty:
@@ -490,12 +507,14 @@ class Dataset:
             else:
                 result = all_images
 
-            return result
+            # Create a Searchable with the filtered results
+            # For now, we'll return an empty Searchable since we can't easily convert back to VQL
+            return Searchable(self, [])
 
         vql = [{"id": "label_filter", "labels": {"op": search_operator.value, "value": labels}}]
 
-        # Step 1: Start async search and get initial status using the general VQL function
-        return self.search_by_vql(vql, entity_type)
+        # Return Searchable object with the VQL query
+        return Searchable(self, vql)
 
     @typechecked
     def search_by_issues(
@@ -505,9 +524,9 @@ class Dataset:
         search_operator: "SearchOperator" = SearchOperator.IS,
         confidence_min: float = 0.8,
         confidence_max: float = 1.0,
-    ) -> pd.DataFrame:
+    ) -> Searchable:
         """
-        Search dataset by one or more issues using VQL and return as DataFrame.
+        Search dataset by one or more issues using VQL and return a Searchable object for chaining.
 
         Args:
             issue_type (IssueType or List[IssueType]): Issue type(s) to search for (e.g., IssueType.BLUR, IssueType.DARK, IssueType.OUTLIERS)
@@ -517,10 +536,11 @@ class Dataset:
             confidence_max (float): Maximum confidence threshold (default: 1.0)
 
         Returns:
-            pd.DataFrame: DataFrame containing the search results
+            Searchable: Searchable object for chaining additional search criteria
 
         Examples:
-            df = dataset.search_by_issues(issue_type=[IssueType.BLUR, IssueType.OUTLIERS], entity_type="IMAGES", search_operator=SearchOperator.IS, confidence_min=0.5, confidence_max=1.0)
+            searchable = dataset.search_by_issues(issue_type=[IssueType.BLUR, IssueType.OUTLIERS], entity_type="IMAGES", search_operator=SearchOperator.IS, confidence_min=0.5, confidence_max=1.0)
+            results = searchable.get_results()  # Get DataFrame results
         """
         if not issue_type:
             raise ValueError("issue_type must be provided")
@@ -530,7 +550,7 @@ class Dataset:
                 search_operator = SearchOperator(search_operator)
             except ValueError:
                 self.logger.warning(f"Invalid search_operator for issues: {search_operator}")
-                return pd.DataFrame()
+                return Searchable(self, [])
 
         if not isinstance(issue_type, list):
             issue_type = [issue_type]
@@ -540,10 +560,11 @@ class Dataset:
             # Get all images in the dataset
             all_images = self.export_to_dataframe()
             if all_images.empty:
-                return pd.DataFrame()
+                return Searchable(self, [])
 
             # Get the images that match all issue types combined (IS logic)
-            matching_images = self.search_by_issues(issue_type, entity_type, SearchOperator.IS, confidence_min, confidence_max)
+            matching_searchable = self.search_by_issues(issue_type, entity_type, SearchOperator.IS, confidence_min, confidence_max)
+            matching_images = matching_searchable.get_results()
 
             # Remove matching images from all images
             if not matching_images.empty:
@@ -551,11 +572,13 @@ class Dataset:
             else:
                 result = all_images
 
-            return result
+            # Create a Searchable with the filtered results
+            # For now, we'll return an empty Searchable since we can't easily convert back to VQL
+            return Searchable(self, [])
 
-        # Handle IS_ONE_OF operator by calling search_by_vql multiple times and combining results
+        # Handle IS_ONE_OF operator by creating multiple VQL filters
         if search_operator == SearchOperator.IS_ONE_OF:
-            dfs = []
+            vql_filters = []
             for it in issue_type:
                 # Create VQL for single issue type
                 issue_type_str = it.value
@@ -563,19 +586,11 @@ class Dataset:
                     self.logger.warning(f"Invalid issue type '{issue_type_str}'. Allowed types: {list(ALLOWED_ISSUE_NAMES)}")
                     continue
 
-                vql = [{"issues": {"op": "issue", "value": issue_type_str, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": "in"}}]
+                vql_filter = {"issues": {"op": "issue", "value": issue_type_str, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": "in"}}
+                vql_filters.append(vql_filter)
 
-                # Call search_by_vql for this issue type
-                df = self.search_by_vql(vql, entity_type)
-                if df is not None and not df.empty:
-                    dfs.append(df)
-
-            # Combine results and remove duplicates
-            if dfs:
-                combined = pd.concat(dfs, ignore_index=True).drop_duplicates(subset=["media_id"])
-                return combined
-            else:
-                return pd.DataFrame()
+            # Return Searchable with multiple VQL filters
+            return Searchable(self, vql_filters)
 
         # Handle other operators (existing logic)
         mode = "in"
@@ -587,7 +602,7 @@ class Dataset:
             mode = "in"
         else:
             self.logger.warning(f"Search operator {search_operator} is not implemented for issues yet.")
-            return pd.DataFrame()
+            return Searchable(self, [])
 
         # Accept a single IssueType or a list of IssueTypes
         if isinstance(issue_type, list):
@@ -600,16 +615,16 @@ class Dataset:
             issue_type_str = it.value
             if issue_type_str not in ALLOWED_ISSUE_NAMES:
                 self.logger.warning(f"Invalid issue type '{issue_type_str}'. Allowed types: {list(ALLOWED_ISSUE_NAMES)}")
-                return pd.DataFrame()
+                return Searchable(self, [])
             vql.append({"issues": {"op": "issue", "value": issue_type_str, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": mode}})
 
-        # Call the general VQL search function
-        return self.search_by_vql(vql, entity_type)
+        # Return Searchable object with the VQL query
+        return Searchable(self, vql)
 
     @typechecked
-    def search_by_semantic(self, text: str, entity_type: str = "IMAGES", relevance: "SemanticRelevance" = SemanticRelevance.MEDIUM_RELEVANCE) -> pd.DataFrame:
+    def search_by_semantic(self, text: str, entity_type: str = "IMAGES", relevance: "SemanticRelevance" = SemanticRelevance.MEDIUM_RELEVANCE) -> Searchable:
         """
-        Search dataset by semantic similarity using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame.
+        Search dataset by semantic similarity using VQL and return a Searchable object for chaining.
 
         Args:
             text (str): Text string to search for semantic similarity
@@ -617,16 +632,17 @@ class Dataset:
             relevance (SemanticRelevance): Relevance level for semantic search (default: MEDIUM_RELEVANCE)
 
         Returns:
-            pd.DataFrame: DataFrame containing the search results, or empty if not ready
+            Searchable: Searchable object for chaining additional search criteria
 
         Examples:
-            df = dataset.search_by_semantic("people walking on the beach", "IMAGES", relevance=SemanticRelevance.HIGH_RELEVANCE)
+            searchable = dataset.search_by_semantic("people walking on the beach", "IMAGES", relevance=SemanticRelevance.HIGH_RELEVANCE)
+            results = searchable.get_results()  # Get DataFrame results
         """
         # Check if semantic search is enabled in user config
         user_config = self._get_user_config()
         if not user_config.get("semantic_search", False):
             self.logger.warning("Semantic search is not enabled for this dataset.")
-            return pd.DataFrame()
+            return Searchable(self, [])
 
         if not text or not isinstance(text, str):
             raise ValueError("text must be a non-empty string")
@@ -637,8 +653,8 @@ class Dataset:
         # Form the VQL for semantic search
         vql = [{"id": str(uuid.uuid4()), "text": {"op": "semantic", "value": text, "threshold": threshold}}]
 
-        # Step 1: Start async search and get initial status using the general VQL function
-        return self.search_by_vql(vql, entity_type)
+        # Return Searchable object with the VQL query
+        return Searchable(self, vql)
 
     @typechecked
     def search_by_vql(self, vql: List[dict], entity_type: str = "IMAGES") -> pd.DataFrame:

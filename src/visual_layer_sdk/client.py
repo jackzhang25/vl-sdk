@@ -154,10 +154,55 @@ class VisualLayerClient:
         return df
 
     def get_dataset_object(self, dataset_id: str) -> Dataset:
-        """Get a dataset object for the given ID (for operations like export, delete, etc.)"""
+        """Get a Dataset object for the given dataset_id"""
         return Dataset(self, dataset_id)
 
-    # TODO: validate inputs
+    def get_searchable_by_id(self, searchable_id: str, dataset_id: str, vql_query: list = None) -> "Searchable":
+        """
+        Retrieve a Searchable object by its ID.
+
+        This method reconstructs a Searchable object from its ID, dataset_id, and optional VQL query.
+        This is useful for server communication where you need to recreate a Searchable object
+        from its stored parameters.
+
+        Args:
+            searchable_id (str): The unique ID of the Searchable object
+            dataset_id (str): The ID of the dataset associated with the Searchable
+            vql_query (list, optional): The VQL query associated with the Searchable.
+                                      If None, an empty query will be used.
+
+        Returns:
+            Searchable: A Searchable object with the specified ID and parameters
+
+        Raises:
+            ValueError: If dataset_id is invalid or dataset doesn't exist
+            requests.exceptions.RequestException: If there's an API error
+
+        Examples:
+            # Recreate a Searchable from stored parameters
+            searchable = client.get_searchable_by_id(
+                searchable_id="abc-123-def",
+                dataset_id="dataset-456",
+                vql_query=[{"labels": {"op": "one_of", "value": ["healthy"]}}]
+            )
+
+            # Get results from the recreated Searchable
+            results = searchable.get_results()
+        """
+        # Import here to avoid circular import
+        from .searchable_dataset import Searchable
+
+        # Validate that the dataset exists by trying to get it
+        try:
+            dataset = self.get_dataset_object(dataset_id)
+        except Exception as e:
+            raise ValueError(f"Invalid dataset_id '{dataset_id}': {str(e)}")
+
+        # Create the Searchable object with the specified ID
+        searchable = Searchable.from_id(searchable_id, dataset, vql_query or [])
+
+        return searchable
+
     def create_dataset_from_s3_bucket(self, s3_bucket_path: str, dataset_name: str, pipeline_type: str = None) -> Dataset:
         """
         Create a dataset from an S3 bucket.
