@@ -1,7 +1,7 @@
 import json
 import uuid
 from enum import Enum
-from typing import List
+from typing import List, Union
 
 import pandas as pd
 from typeguard import typechecked
@@ -419,6 +419,208 @@ class Dataset:
         except Exception as e:
             self.logger.error(f"Image similarity search failed: {str(e)}")
             raise
+
+    def _process_searchable_vql(self, vql_filters: List[dict], entity_type: str = "IMAGES") -> pd.DataFrame:
+        """
+        Process VQL filters from Searchable class and execute searches.
+        This method reformats standardized VQLs into the correct API format
+        and processes each search type according to its specific requirements.
+        Results are combined by keeping only images that appear in ALL searches (intersection).
+
+        Args:
+            vql_filters: List of standardized VQL filters from Searchable class
+            entity_type: Entity type to search ("IMAGES" or "OBJECTS")
+
+        Returns:
+            DataFrame containing the search results (intersection of all searches)
+        """
+        if not vql_filters:
+            # No filters, return all images
+            return self.export_to_dataframe()
+
+        all_results = []
+
+        for filter_obj in vql_filters:
+            for field, config in filter_obj.items():
+                if not isinstance(config, dict) or "op" not in config or "value" not in config:
+                    continue
+
+                op = config["op"]
+                value = config["value"]
+
+                if field == "labels":
+                    # Labels search - direct VQL format (API handles IS_NOT natively)
+                    vql = [{"labels": {"op": op, "value": value}}]
+                    results = self.search_by_vql(vql, entity_type)
+                    all_results.append(results)
+
+                elif field == "captions":
+                    # Captions search - handle different operators
+                    if op == "one_of" and isinstance(value, list):
+                        # For IS_ONE_OF, search each caption separately and combine
+                        caption_results = []
+                        self.logger.debug(f"Searching for {len(value)} captions: {value}")
+
+                        for caption in value:
+                            vql = [{"text": {"op": "fts", "value": caption}}]
+                            results = self.search_by_vql(vql, entity_type)
+                            self.logger.debug(f"Caption '{caption}' returned {len(results)} results")
+                            if not results.empty:
+                                caption_results.append(results)
+
+                        # Union of all caption results with robust duplicate removal
+                        if caption_results:
+                            # Combine all results
+                            combined_captions = pd.concat(caption_results, ignore_index=True)
+                            self.logger.debug(f"Combined {len(combined_captions)} total results before deduplication")
+
+                            # Remove duplicates by media_id, keeping first occurrence
+                            if "media_id" in combined_captions.columns:
+                                before_count = len(combined_captions)
+                                combined_captions = combined_captions.drop_duplicates(subset=["media_id"], keep="first")
+                                after_count = len(combined_captions)
+                                self.logger.debug(f"Removed {before_count - after_count} duplicates by media_id")
+                            else:
+                                # Fallback: remove duplicates by index
+                                before_count = len(combined_captions)
+                                combined_captions = combined_captions.drop_duplicates(keep="first")
+                                after_count = len(combined_captions)
+                                self.logger.debug(f"Removed {before_count - after_count} duplicates by index")
+
+                            all_results.append(combined_captions)
+                        else:
+                            self.logger.debug("No caption results found")
+                            all_results.append(pd.DataFrame())
+                    else:
+                        # For other operators, use single search
+                        combined_text = " ".join(value) if isinstance(value, list) else value
+                        vql = [{"text": {"op": "fts", "value": combined_text}}]
+                        results = self.search_by_vql(vql, entity_type)
+                        all_results.append(results)
+
+                elif field == "issues":
+                    # Issues search - convert to proper API format
+                    confidence_min = config.get("confidence_min", 0.8)
+                    confidence_max = config.get("confidence_max", 1.0)
+
+                    # Determine mode based on operator
+                    if op == "is_not":
+                        mode = "out"  # API mode "out" means exclude these issues
+                    else:
+                        mode = "in"  # API mode "in" means include these issues
+
+                    if isinstance(value, list):
+                        # Multiple issue types
+                        issue_results = []
+                        self.logger.debug(f"Searching for {len(value)} issue types: {value}")
+
+                        for issue in value:
+                            vql = [{"issues": {"op": "issue", "value": issue, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": mode}}]
+                            results = self.search_by_vql(vql, entity_type)
+                            self.logger.debug(f"Issue '{issue}' returned {len(results)} results")
+                            if not results.empty:
+                                issue_results.append(results)
+
+                        # Union of all issue results with robust duplicate removal
+                        if issue_results:
+                            # Combine all results
+                            combined_issues = pd.concat(issue_results, ignore_index=True)
+                            self.logger.debug(f"Combined {len(combined_issues)} total results before deduplication")
+
+                            # Remove duplicates by media_id, keeping first occurrence
+                            if "media_id" in combined_issues.columns:
+                                before_count = len(combined_issues)
+                                combined_issues = combined_issues.drop_duplicates(subset=["media_id"], keep="first")
+                                after_count = len(combined_issues)
+                                self.logger.debug(f"Removed {before_count - after_count} duplicates by media_id")
+                            else:
+                                # Fallback: remove duplicates by index
+                                before_count = len(combined_issues)
+                                combined_issues = combined_issues.drop_duplicates(keep="first")
+                                after_count = len(combined_issues)
+                                self.logger.debug(f"Removed {before_count - after_count} duplicates by index")
+
+                            all_results.append(combined_issues)
+                        else:
+                            self.logger.debug("No issue results found")
+                            all_results.append(pd.DataFrame())
+                    else:
+                        # Single issue type
+                        vql = [{"issues": {"op": "issue", "value": value, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": mode}}]
+                        results = self.search_by_vql(vql, entity_type)
+                        all_results.append(results)
+
+                elif field == "semantic":
+                    # Semantic search - convert to proper API format
+                    relevance = config.get("relevance", 0.8)
+                    vql = [{"text": {"op": "semantic", "value": value, "relevance": relevance}}]
+                    results = self.search_by_vql(vql, entity_type)
+                    all_results.append(results)
+
+                elif field == "similarity":
+                    # Visual similarity search - convert to proper API format
+                    threshold = config.get("threshold", 0.8)
+                    search_operator = config.get("search_operator", "one_of")
+                    vql = [{"similarity": {"op": "upload", "value": value, "threshold": threshold}}]
+                    results = self.search_by_vql(vql, entity_type)
+                    all_results.append(results)
+
+                else:
+                    # Unknown field, try to pass through as-is
+                    vql = [filter_obj]
+                    results = self.search_by_vql(vql, entity_type)
+                    all_results.append(results)
+
+        if not all_results:
+            return pd.DataFrame()
+
+        # Debug logging
+        self.logger.debug(f"Processing {len(all_results)} search results")
+        for i, result in enumerate(all_results):
+            self.logger.debug(f"Search {i+1}: {len(result)} results")
+
+        # Find intersection of all results (images that appear in ALL searches)
+        if len(all_results) == 1:
+            return all_results[0]
+
+        # Get the first result set
+        intersection_results = all_results[0]
+        self.logger.debug(f"Starting intersection with {len(intersection_results)} results from first search")
+
+        # Find common images across all result sets
+        for i, result_set in enumerate(all_results[1:], 2):
+            self.logger.debug(f"Finding intersection with search {i}: {len(result_set)} results")
+
+            # Check for media_id column (which is the correct column name)
+            if "media_id" in intersection_results.columns and "media_id" in result_set.columns:
+                # Use media_id for intersection
+                common_ids = set(intersection_results["media_id"]).intersection(set(result_set["media_id"]))
+                intersection_results = intersection_results[intersection_results["media_id"].isin(common_ids)]
+                self.logger.debug(f"Using media_id: {len(common_ids)} common images found")
+            elif "id" in intersection_results.columns and "id" in result_set.columns:
+                # Fallback to id column
+                common_ids = set(intersection_results["id"]).intersection(set(result_set["id"]))
+                intersection_results = intersection_results[intersection_results["id"].isin(common_ids)]
+                self.logger.debug(f"Using id: {len(common_ids)} common images found")
+            else:
+                # Fallback: use index intersection
+                common_indices = intersection_results.index.intersection(result_set.index)
+                intersection_results = intersection_results.loc[common_indices]
+                self.logger.debug(f"Using index: {len(common_indices)} common images found")
+
+            self.logger.debug(f"After intersection with search {i}: {len(intersection_results)} results remaining")
+
+        self.logger.debug(f"Final intersection result: {len(intersection_results)} images")
+
+        # Final duplicate removal to ensure clean results
+        if not intersection_results.empty and "media_id" in intersection_results.columns:
+            before_count = len(intersection_results)
+            intersection_results = intersection_results.drop_duplicates(subset=["media_id"], keep="first")
+            after_count = len(intersection_results)
+            if before_count != after_count:
+                self.logger.debug(f"Final cleanup: Removed {before_count - after_count} duplicate media_ids")
+
+        return intersection_results
 
     def _get_user_config(self) -> dict:
         """

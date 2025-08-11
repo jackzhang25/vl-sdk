@@ -6,7 +6,7 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 
-from .dataset import Dataset, SearchOperator
+from .dataset import Dataset, IssueType, SearchOperator
 from .logger import get_logger
 
 
@@ -404,6 +404,12 @@ def main():
         print("❌ Error: API credentials not found in environment variables")
         print("Please make sure VISUAL_LAYER_API_KEY and VISUAL_LAYER_API_SECRET are set in your .env file")
         return
+
+    client = VisualLayerClient(API_KEY, API_SECRET)
+    dataset = client.get_dataset_object("bc41491e-78ae-11ef-ba4b-8a774758b536")
+    results = dataset.search().search_by_captions(["leaf", "plant"], search_operator=SearchOperator.IS_ONE_OF).get_results()
+    print(f"Total rows: {len(results)}")
+    print(f"Shape: {results.shape}")
 
 
 if __name__ == "__main__":

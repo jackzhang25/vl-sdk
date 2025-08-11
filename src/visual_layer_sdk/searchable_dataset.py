@@ -62,6 +62,36 @@ class Searchable:
         searchable.searchable_id = searchable_id
         return searchable
 
+    def chain_filters(self, *filters: "Searchable") -> "Searchable":
+        """
+        Chain multiple filters together to create a complex query.
+        This method combines multiple Searchable objects into one with all their filters.
+
+        Args:
+            *filters: Variable number of Searchable objects to chain together
+
+        Returns:
+            New Searchable with all filters combined
+        """
+        if not filters:
+            return self
+
+        # Collect all VQL filters from all Searchable objects
+        all_vql_filters = self.vql_query.copy()
+
+        for filter_searchable in filters:
+            if filter_searchable.vql_query:
+                all_vql_filters.extend(filter_searchable.vql_query)
+
+        # Create new Searchable with all filters
+        new_searchable = Searchable(self.original_dataset, all_vql_filters)
+        # Preserve the searchable_id
+        new_searchable.searchable_id = self.searchable_id
+        # Clear cached results and count for new query
+        new_searchable._cached_results = None
+        new_searchable._cached_count = None
+        return new_searchable
+
     def search_by_labels(self, labels: Union[List[str], str], search_operator: "SearchOperator" = None) -> "Searchable":
         """
         Add label search criteria to the current query.
@@ -88,10 +118,13 @@ class Searchable:
         if search_operator is None:
             search_operator = SearchOperator.IS_ONE_OF
 
-        label_filter = {"id": "label_filter", "labels": {"op": search_operator.value, "value": labels}}
+        # Build the correct VQL structure for labels
+        label_filter = {"labels": {"op": search_operator.value, "value": labels}}
 
-        new_vql = self.vql_query + [label_filter]
-        new_searchable = Searchable(self.original_dataset, new_vql)
+        # Create new Searchable with accumulated filters
+        new_vql_query = self.vql_query.copy()
+        new_vql_query.append(label_filter)
+        new_searchable = Searchable(self.original_dataset, new_vql_query)
         # Preserve the searchable_id
         new_searchable.searchable_id = self.searchable_id
         # Clear cached results and count for new query
@@ -125,21 +158,19 @@ class Searchable:
         if search_operator is None:
             search_operator = SearchOperator.IS
 
-        # Combine captions for IS operator, or handle IS_ONE_OF separately
-        if search_operator.value == "is":
-            combined_text = " ".join(captions)
-            caption_filter = {"text": {"op": "fts", "value": combined_text}}
-            new_vql = self.vql_query + [caption_filter]
-        elif search_operator.value == "one_of":
-            # For IS_ONE_OF, we need to create multiple text filters
-            new_vql = self.vql_query.copy()
-            for caption in captions:
-                caption_filter = {"text": {"op": "fts", "value": caption}}
-                new_vql.append(caption_filter)
+        # Build the correct VQL structure for captions
+        if search_operator == SearchOperator.IS_ONE_OF and len(captions) > 1:
+            # For IS_ONE_OF with multiple captions, keep them as a list
+            caption_filter = {"captions": {"op": search_operator.value, "value": captions}}
         else:
-            raise ValueError(f"Search operator {search_operator} not supported for captions")
+            # For other operators or single caption, combine into one search string
+            combined_text = " ".join(captions)
+            caption_filter = {"captions": {"op": search_operator.value, "value": combined_text}}
 
-        new_searchable = Searchable(self.original_dataset, new_vql)
+        # Create new Searchable with accumulated filters
+        new_vql_query = self.vql_query.copy()
+        new_vql_query.append(caption_filter)
+        new_searchable = Searchable(self.original_dataset, new_vql_query)
         # Preserve the searchable_id
         new_searchable.searchable_id = self.searchable_id
         # Clear cached results and count for new query
@@ -179,27 +210,26 @@ class Searchable:
                 self.original_dataset.logger.warning(f"Invalid search_operator for issues: {search_operator}")
                 return self
 
-        new_vql = self.vql_query.copy()
-
+        # Validate issue types
         for it in issue_type:
             issue_type_str = it.value
             if issue_type_str not in ALLOWED_ISSUE_NAMES:
                 self.original_dataset.logger.warning(f"Invalid issue type '{issue_type_str}'. Allowed types: {list(ALLOWED_ISSUE_NAMES)}")
                 return self
 
-            # Special handling for duplicates - uses different VQL format
-            if issue_type_str == "duplicates":
-                # Duplicates use a threshold value (0.995 is a good default for high confidence duplicates)
-                threshold = confidence_min if confidence_min > 0.9 else 0.995
-                issue_filter = {"id": str(uuid.uuid4()), "duplicates": {"op": "duplicates", "value": threshold}}
-            else:
-                # Standard issue format for other issue types
-                issue_filter = {
-                    "issues": {"op": "issue", "value": issue_type_str, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": "in" if search_operator.value == "is" else "out"}
-                }
-            new_vql.append(issue_filter)
+        # Build the correct VQL structure for issues
+        if len(issue_type) == 1:
+            # Single issue type
+            issue_filter = {"issues": {"op": search_operator.value, "value": issue_type[0].value, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": "in"}}
+        else:
+            # Multiple issue types - use single filter with array of values
+            issue_values = [it.value for it in issue_type]
+            issue_filter = {"issues": {"op": search_operator.value, "value": issue_values, "confidence_min": confidence_min, "confidence_max": confidence_max, "mode": "in"}}
 
-        new_searchable = Searchable(self.original_dataset, new_vql)
+        # Create new Searchable with accumulated filters
+        new_vql_query = self.vql_query.copy()
+        new_vql_query.append(issue_filter)
+        new_searchable = Searchable(self.original_dataset, new_vql_query)
         # Preserve the searchable_id
         new_searchable.searchable_id = self.searchable_id
         # Clear cached results and count for new query
@@ -233,10 +263,13 @@ class Searchable:
         if relevance is None:
             relevance = SemanticRelevance.MEDIUM_RELEVANCE
 
-        semantic_filter = {"id": str(uuid.uuid4()), "text": {"op": "semantic", "value": text, "threshold": relevance.value}}
+        # Build the correct VQL structure for semantic search
+        semantic_filter = {"semantic": {"op": "semantic", "value": text, "relevance": relevance.value}}
 
-        new_vql = self.vql_query + [semantic_filter]
-        new_searchable = Searchable(self.original_dataset, new_vql)
+        # Create new Searchable with accumulated filters
+        new_vql_query = self.vql_query.copy()
+        new_vql_query.append(semantic_filter)
+        new_searchable = Searchable(self.original_dataset, new_vql_query)
         # Preserve the searchable_id
         new_searchable.searchable_id = self.searchable_id
         # Clear cached results and count for new query
@@ -244,17 +277,17 @@ class Searchable:
         new_searchable._cached_count = None
         return new_searchable
 
-    def search_by_visual_similarity(self, image_path: str, search_operator: "SearchOperator" = None, threshold: float = 0.8) -> "Searchable":
+    def search_by_visual_similarity(self, image_path: str, threshold: float = 0.8, search_operator: "SearchOperator" = None) -> "Searchable":
         """
         Add visual similarity search criteria to the current query.
 
         Args:
             image_path: Path to the reference image
-            search_operator: Search operator to use
             threshold: Similarity threshold between 0.0 and 1.0 (default: 0.8)
                       Lower values = more restrictive (fewer results)
                       Higher values = less restrictive (more results)
                       Recommended range: 0.2-0.8
+            search_operator: Search operator to use
 
         Returns:
             New Searchable with updated query
@@ -295,10 +328,14 @@ class Searchable:
         if not media_id:
             raise ValueError("Failed to get anchor_media_id from image upload")
 
-        similarity_filter = {"id": "similarity_search", "similarity": {"op": "upload", "value": media_id, "threshold": threshold}}
+        # Build the correct VQL structure for visual similarity
+        # Visual similarity always uses "upload" operation, but we store the search operator for consistency
+        similarity_filter = {"similarity": {"op": "upload", "value": media_id, "threshold": threshold, "search_operator": search_operator.value}}
 
-        new_vql = self.vql_query + [similarity_filter]
-        new_searchable = Searchable(self.original_dataset, new_vql)
+        # Create new Searchable with accumulated filters
+        new_vql_query = self.vql_query.copy()
+        new_vql_query.append(similarity_filter)
+        new_searchable = Searchable(self.original_dataset, new_vql_query)
         # Preserve the searchable_id
         new_searchable.searchable_id = self.searchable_id
         # Clear cached results and count for new query
@@ -329,7 +366,7 @@ class Searchable:
             count = len(all_results)
         else:
             # Execute the VQL query and get count
-            results = self.original_dataset.search_by_vql(self.vql_query, entity_type)
+            results = self.original_dataset._process_searchable_vql(self.vql_query, entity_type)
             count = len(results)
 
         # Cache the count
@@ -356,8 +393,8 @@ class Searchable:
             # If no query has been built, return all images
             raw_results = self.original_dataset.export_to_dataframe()
         else:
-            # Execute the VQL query
-            raw_results = self.original_dataset.search_by_vql(self.vql_query, entity_type)
+            # Execute the VQL query using the new processing method
+            raw_results = self.original_dataset._process_searchable_vql(self.vql_query, entity_type)
 
         # Cache the results
         self._cached_results = raw_results
