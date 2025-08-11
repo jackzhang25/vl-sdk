@@ -25,7 +25,10 @@ class Searchable:
         self.searchable_id = str(uuid.uuid4())
         # Cache for storing results after first evaluation
         self._cached_results = None
-        self._cached_count = None
+
+        # Add this searchable to the client's storage
+        if hasattr(self.client, "add_searchable"):
+            self.client.add_searchable(self.searchable_id, self)
 
     def get_dataset(self) -> "Dataset":
         """
@@ -60,6 +63,11 @@ class Searchable:
         """
         searchable = cls(dataset, vql_query)
         searchable.searchable_id = searchable_id
+
+        # Add this searchable to the client's storage with the specified ID
+        if hasattr(searchable.client, "add_searchable"):
+            searchable.client.add_searchable(searchable_id, searchable)
+
         return searchable
 
     def chain_filters(self, *filters: "Searchable") -> "Searchable":
@@ -87,9 +95,8 @@ class Searchable:
         new_searchable = Searchable(self.original_dataset, all_vql_filters)
         # Preserve the searchable_id
         new_searchable.searchable_id = self.searchable_id
-        # Clear cached results and count for new query
+        # Clear cached results for new query
         new_searchable._cached_results = None
-        new_searchable._cached_count = None
         return new_searchable
 
     def search_by_labels(self, labels: Union[List[str], str], search_operator: "SearchOperator" = None) -> "Searchable":
@@ -127,9 +134,8 @@ class Searchable:
         new_searchable = Searchable(self.original_dataset, new_vql_query)
         # Preserve the searchable_id
         new_searchable.searchable_id = self.searchable_id
-        # Clear cached results and count for new query
+        # Clear cached results for new query
         new_searchable._cached_results = None
-        new_searchable._cached_count = None
         return new_searchable
 
     def search_by_captions(self, captions: Union[List[str], str], search_operator: "SearchOperator" = None) -> "Searchable":
@@ -173,9 +179,8 @@ class Searchable:
         new_searchable = Searchable(self.original_dataset, new_vql_query)
         # Preserve the searchable_id
         new_searchable.searchable_id = self.searchable_id
-        # Clear cached results and count for new query
+        # Clear cached results for new query
         new_searchable._cached_results = None
-        new_searchable._cached_count = None
         return new_searchable
 
     def search_by_issues(self, issue_type: Union["IssueType", List["IssueType"]], search_operator: "SearchOperator" = None, confidence_min: float = 0.8, confidence_max: float = 1.0) -> "Searchable":
@@ -232,9 +237,8 @@ class Searchable:
         new_searchable = Searchable(self.original_dataset, new_vql_query)
         # Preserve the searchable_id
         new_searchable.searchable_id = self.searchable_id
-        # Clear cached results and count for new query
+        # Clear cached results for new query
         new_searchable._cached_results = None
-        new_searchable._cached_count = None
         return new_searchable
 
     def search_by_semantic(self, text: str, relevance: "SemanticRelevance" = None) -> "Searchable":
@@ -265,16 +269,15 @@ class Searchable:
 
         # Build the correct VQL structure for semantic search
         semantic_filter = {"semantic": {"op": "semantic", "value": text, "relevance": relevance.value}}
-
+        print(f"Semantic filter: {semantic_filter}")
         # Create new Searchable with accumulated filters
         new_vql_query = self.vql_query.copy()
         new_vql_query.append(semantic_filter)
         new_searchable = Searchable(self.original_dataset, new_vql_query)
         # Preserve the searchable_id
         new_searchable.searchable_id = self.searchable_id
-        # Clear cached results and count for new query
+        # Clear cached results for new query
         new_searchable._cached_results = None
-        new_searchable._cached_count = None
         return new_searchable
 
     def search_by_visual_similarity(self, image_path: str, threshold: float = 0.8, search_operator: "SearchOperator" = None) -> "Searchable":
@@ -338,9 +341,8 @@ class Searchable:
         new_searchable = Searchable(self.original_dataset, new_vql_query)
         # Preserve the searchable_id
         new_searchable.searchable_id = self.searchable_id
-        # Clear cached results and count for new query
+        # Clear cached results for new query
         new_searchable._cached_results = None
-        new_searchable._cached_count = None
         return new_searchable
 
     def count(self, entity_type: str = "IMAGES") -> int:
@@ -355,23 +357,13 @@ class Searchable:
         Returns:
             int: Number of results that satisfy the query criteria
         """
-        # Return cached count if available
-        if self._cached_count is not None:
-            return self._cached_count
+        # If results are already cached, just return the length
+        if self._cached_results is not None:
+            return len(self._cached_results)
 
-        # Calculate count and cache it
-        if not self.vql_query:
-            # If no query has been built, return count of all images
-            all_results = self.original_dataset.export_to_dataframe()
-            count = len(all_results)
-        else:
-            # Execute the VQL query and get count
-            results = self.original_dataset._process_searchable_vql(self.vql_query, entity_type)
-            count = len(results)
-
-        # Cache the count
-        self._cached_count = count
-        return count
+        # If no results cached, call get_results to cache them and return length
+        results = self.get_results(entity_type)
+        return len(results)
 
     def get_results(self, entity_type: str = "IMAGES") -> pd.DataFrame:
         """
@@ -411,9 +403,8 @@ class Searchable:
             None
         """
         self.vql_query = []
-        # Clear cached results and count
+        # Clear cached results
         self._cached_results = None
-        self._cached_count = None
 
     def get_query(self) -> List[dict]:
         """

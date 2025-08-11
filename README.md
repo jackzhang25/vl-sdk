@@ -121,6 +121,45 @@ Get a Dataset object for advanced operations.
 dataset = client.get_dataset_object("your_dataset_id")
 ```
 
+##### `add_searchable(searchable_id: str, searchable: Searchable) -> None`
+Add a Searchable object to the client's storage dictionary.
+
+```python
+# This is automatically called when Searchable objects are created
+# You can also manually add searchables if needed
+client.add_searchable("searchable_123", searchable_object)
+```
+
+**Parameters:**
+- `searchable_id` (str): The unique ID of the Searchable object
+- `searchable`: The Searchable object to store
+
+##### `get_searchable(searchable_id: str) -> Searchable`
+Get a Searchable object from the client's storage by ID.
+
+```python
+# Retrieve a previously stored searchable
+searchable = client.get_searchable("searchable_123")
+if searchable:
+    results = searchable.get_results()
+```
+
+**Parameters:**
+- `searchable_id` (str): The unique ID of the Searchable object
+
+**Returns:** The stored Searchable object, or None if not found
+
+##### `get_all_searchables() -> list`
+Get all Searchable objects stored in the client.
+
+```python
+# Get all stored searchables
+all_searchables = client.get_all_searchables()
+print(f"Client has {len(all_searchables)} stored searchables")
+```
+
+**Returns:** List of all stored Searchable objects
+
 #### Dataset Creation
 
 ##### `create_dataset_from_s3_bucket(s3_bucket_path: str, dataset_name: str, pipeline_type: str = None) -> dict`
@@ -225,88 +264,18 @@ Delete the dataset permanently.
 result = dataset.delete()
 ```
 
-##### `search_by_labels(labels: List[str], entity_type: str = "IMAGES") -> pd.DataFrame`
-Search the dataset by labels using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame.
+##### `search() -> Searchable`
+Get a Searchable object for building complex search queries.
 
 ```python
-labels = ["cat", "dog"]
-df = dataset.search_by_labels(labels, "IMAGES")
+# Get searchable object
+searchable = dataset.search()
+
+# Use the searchable object to build and execute searches
+results = searchable.search_by_labels(["cat"]).get_results()
 ```
 
-- `labels` (List[str]): List of labels to search for
-- `entity_type` (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
-
-**Returns:** DataFrame containing the search results, or empty if not ready or no matches found.
-
-##### `search_by_captions(captions: List[str], entity_type: str = "IMAGES") -> pd.DataFrame`
-Search the dataset by captions using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame.
-
-```python
-df = dataset.search_by_captions(["cat", "sitting", "outdoors"], "IMAGES")
-```
-
-- `captions` (List[str]): List of text strings to search in captions (will be combined into one search string)
-- `entity_type` (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
-
-**Returns:** DataFrame containing the search results, or empty if not ready or no matches found.
-
-##### `search_by_semantic(text: str, entity_type: str = "IMAGES", relevance: SemanticRelevance = SemanticRelevance.MEDIUM_RELEVANCE) -> pd.DataFrame`
-Search the dataset by semantic similarity using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame.
-
-```python
-from visual_layer_sdk.dataset import SemanticRelevance
-
-df = dataset.search_by_semantic("people walking on the beach", "IMAGES", relevance=SemanticRelevance.HIGH_RELEVANCE)
-```
-
-- `text` (str): Text string to search for semantic similarity
-- `entity_type` (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
-- `relevance` (SemanticRelevance): Relevance level for semantic search (default: MEDIUM_RELEVANCE)
-
-**Returns:** DataFrame containing the search results, or empty if not ready or no matches found.
-
-##### `search_by_issues(issue_type: IssueType or List[IssueType], entity_type: str = "IMAGES", search_operator: SearchOperator = SearchOperator.IS_ONE_OF, confidence_min: float = 0.8, confidence_max: float = 1.0) -> pd.DataFrame`
-Search the dataset by one or more issues using VQL asynchronously, poll until export is ready, download the results, and return as a DataFrame. If a list of issue types is provided, the VQL will include a filter for each issue type.
-
-```python
-from visual_layer_sdk.dataset import IssueType, SearchOperator
-
-df = dataset.search_by_issues(
-    issue_type=[IssueType.OUTLIERS, IssueType.MISLABELS],
-    entity_type="IMAGES",
-    search_operator=SearchOperator.IS_ONE_OF,
-    confidence_min=0.8,
-    confidence_max=1.0
-)
-```
-
-- `issue_type` (IssueType or List[IssueType]): Issue type(s) to search for (e.g., IssueType.BLUR, IssueType.DARK, IssueType.OUTLIERS, ...)
-- `entity_type` (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
-- `search_operator` (SearchOperator): Search operator for issues (default: SearchOperator.IS_ONE_OF)
-- `confidence_min` (float): Minimum confidence threshold (default: 0.8)
-- `confidence_max` (float): Maximum confidence threshold (default: 1.0)
-
-**Returns:** DataFrame containing the search results for all specified issues.
-
-##### `search_by_visual_similarity(image_path: str or List[str], entity_type: str = "IMAGES", search_operator: SearchOperator = SearchOperator.IS_ONE_OF, threshold: float = 0.8) -> pd.DataFrame`
-Search the dataset by visual similarity using one or more local image files as anchors, poll until export is ready, download the results, and return as a DataFrame. If a list of image paths is provided, results are combined and duplicates (by `media_id`) are removed.
-
-```python
-df = dataset.search_by_visual_similarity(image_path="/path/to/image.jpg", entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF, threshold=0.5)
-df = dataset.search_by_visual_similarity(image_path=["/path/to/img1.jpg", "/path/to/img2.jpg"], entity_type="IMAGES", search_operator=SearchOperator.IS_ONE_OF)
-```
-
-- `image_path` (str or List[str]): Path(s) to the image file(s) to use as anchor(s)
-- `entity_type` (str): Entity type to search ("IMAGES" or "OBJECTS", default: "IMAGES")
-- `search_operator` (SearchOperator): Search operator for visual similarity (default: SearchOperator.IS_ONE_OF)
-- `threshold` (float): Similarity threshold between 0.0 and 1.0 (default: 0.8)
-  - Lower values = more restrictive (fewer results)
-  - Higher values = less restrictive (more results)
-  - Recommended range: 0.2-0.8
-  - Values < 0.2 may return no results
-  - Values > 0.9 may cause connection timeouts
-
-**Returns:** DataFrame containing the combined search results, with duplicates (by `media_id`) removed.
+**Returns:** A Searchable object that can be used to chain multiple search criteria together.
 
 ##### `search_by_vql(vql: List[dict], entity_type: str = "IMAGES") -> pd.DataFrame`
 Search the dataset using custom VQL (Visual Query Language) asynchronously, poll until export is ready, download the results, and return as a DataFrame.
@@ -649,106 +618,301 @@ For Jupyter notebook support:
 pip install ipython
 ```
 
-## Search Operators: Details
+## Search Functionality
 
-The following search operators can be used with labels, issues, and other searchable fields. Use the `SearchOperator` Enum to specify the operator in SDK methods:
+The SDK provides a powerful, chainable search interface through the `Searchable` class. This allows you to build complex queries by chaining multiple search criteria together.
+
+### Basic Search Usage
+
+```python
+# Get a searchable object from the dataset
+searchable = dataset.search()
+
+# Perform searches and chain them together
+results = searchable.search_by_labels(["cat", "dog"])\
+                    .search_by_issues([IssueType.BLUR])\
+                    .search_by_captions(["outdoors"])\
+                    .get_results()
+
+print(f"Found {len(results)} images matching all criteria")
+```
+
+### Search Methods
+
+#### `search_by_labels(labels, search_operator)`
+Search by image labels with support for different operators.
 
 ```python
 from visual_layer_sdk.dataset import SearchOperator
 
-# Example usage:
-df = dataset.search_by_labels(["cat", "dog"], "IMAGES", search_operator=SearchOperator.IS)
-df = dataset.search_by_labels(["cat", "dog"], "IMAGES", search_operator=SearchOperator.IS_NOT)
-df = dataset.search_by_labels(["cat", "dog"], "IMAGES", search_operator=SearchOperator.IS_ONE_OF)
-df = dataset.search_by_labels(["cat", "dog"], "IMAGES", search_operator=SearchOperator.NOT_ONE_OF)
+# Search for images with specific labels
+results = dataset.search().search_by_labels(["cat", "dog"]).get_results()
+
+# Use different search operators
+results = dataset.search().search_by_labels(
+    ["cat", "dog"], 
+    search_operator=SearchOperator.IS_ONE_OF
+).get_results()
+
+# Exclude certain labels
+results = dataset.search().search_by_labels(
+    ["blur", "dark"], 
+    search_operator=SearchOperator.IS_NOT
+).get_results()
 ```
 
-### SearchOperator Enum
+#### `search_by_captions(captions, search_operator)`
+Search by image captions with full-text search capabilities.
 
 ```python
-from enum import Enum
+# Search for images with specific captions
+results = dataset.search().search_by_captions(["cat sitting", "outdoors"]).get_results()
 
-class SearchOperator(Enum):
-    IS = "is"
-    IS_NOT = "is_not"
-    IS_ONE_OF = "one_of"
-    NOT_ONE_OF = "not_one_of"
+# Use different search operators
+results = dataset.search().search_by_captions(
+    ["cat", "dog"], 
+    search_operator=SearchOperator.IS_ONE_OF
+).get_results()
 ```
 
-### Operator Details
-
-| Operator         | Returns items that...                              |
-|-----------------|----------------------------------------------------|
-| IS              | Have all of the specified values                   |
-| IS_NOT          | Do not have all of the specified values together   |
-| IS_ONE_OF       | Have at least one of the specified values          |
-| NOT_ONE_OF      | Have none of the specified values                  |
-
-### Visual Examples (for labels)
-Suppose you have these images:
-- Image A: `["cat"]`
-- Image B: `["dog"]`
-- Image C: `["cat", "dog"]`
-- Image D: `["bird"]`
-
-| Operator   | ["cat", "dog"] | ["cat"] | ["dog"] | ["bird"] |
-|------------|:--------------:|:-------:|:-------:|:--------:|
-| IS         | ✅              | ❌      | ❌      | ❌       |
-| IS_NOT     | ❌              | ✅      | ✅      | ✅       |
-| IS_ONE_OF  | ✅              | ✅      | ✅      | ❌       |
-| NOT_ONE_OF | ❌              | ❌      | ❌      | ✅       |
-
-## Complete Example
+#### `search_by_issues(issue_types, search_operator, confidence_min, confidence_max)`
+Search by image quality issues with confidence thresholds.
 
 ```python
-import os
-from dotenv import load_dotenv
-from visual_layer_sdk import VisualLayerClient
+from visual_layer_sdk.dataset import IssueType, SearchOperator
 
-# Load environment variables
-load_dotenv()
+# Search for images with specific issues
+results = dataset.search().search_by_issues([IssueType.BLUR, IssueType.DARK]).get_results()
 
-# Initialize client
-client = VisualLayerClient(
-    api_key=os.getenv("VISUAL_LAYER_API_KEY"),
-    api_secret=os.getenv("VISUAL_LAYER_API_SECRET")
-)
+# Set confidence thresholds
+results = dataset.search().search_by_issues(
+    [IssueType.OUTLIERS], 
+    confidence_min=0.7, 
+    confidence_max=0.9
+).get_results()
 
-# Check API health
-health = client.healthcheck()
-print(f"API Health: {health}")
+# Exclude certain issues
+results = dataset.search().search_by_issues(
+    [IssueType.BLUR], 
+    search_operator=SearchOperator.IS_NOT
+).get_results()
+```
 
-# Create a dataset from S3
-result = client.create_dataset_from_s3_bucket(
-    s3_bucket_path="s3://my-bucket/images/",
-    dataset_name="My Dataset"
-)
-dataset_id = result["id"]
-print(f"Created dataset: {dataset_id}")
+#### `search_by_semantic(text, relevance)`
+Search by semantic similarity using natural language.
 
-# Get dataset object for operations
-dataset = client.get_dataset_object(dataset_id)
+```python
+from visual_layer_sdk.dataset import SemanticRelevance
 
-# Wait for processing to complete
-import time
-while dataset.get_status() not in ["READY", "completed"]:
-    print(f"Dataset status: {dataset.get_status()}")
-    time.sleep(30)
+# Search for semantically similar images
+results = dataset.search().search_by_semantic("people walking on the beach").get_results()
 
-# Get dataset statistics
-stats = dataset.get_stats()
-print(f"Dataset stats: {stats}")
+# Adjust relevance threshold
+results = dataset.search().search_by_semantic(
+    "healthy plant leaves", 
+    relevance=SemanticRelevance.HIGH_RELEVANCE
+).get_results()
+```
 
-# Explore dataset
-previews = dataset.explore()
-print(f"Found {len(previews)} previews")
+#### `search_by_visual_similarity(image_path, threshold, search_operator)`
+Search by visual similarity using a reference image.
 
-# Export to DataFrame
-media_items = dataset.export_to_dataframe()
-print(f"Exported {len(media_items)} media items")
+```python
+# Search for visually similar images
+results = dataset.search().search_by_visual_similarity(
+    "/path/to/reference_image.jpg", 
+    threshold=0.7
+).get_results()
 
-# Save to CSV
-media_items.to_csv("exported_data.csv", index=False)
+# Adjust threshold for more/less restrictive results
+# Lower threshold = more restrictive (fewer results)
+# Higher threshold = less restrictive (more results)
+# Recommended range: 0.2-0.8
+```
+
+### Chaining Multiple Search Criteria
+
+The power of the Searchable class comes from its ability to chain multiple search criteria together. Results are combined using intersection (AND logic) - only images that match ALL criteria are returned.
+
+```python
+# Complex search combining multiple criteria
+searchable = dataset.search()
+
+# Start with label search
+searchable = searchable.search_by_labels(["cat", "dog"])
+
+# Add issue filtering
+searchable = searchable.search_by_issues([IssueType.BLUR])
+
+# Add caption search
+searchable = searchable.search_by_captions(["outdoors"])
+
+# Add semantic search
+searchable = searchable.search_by_semantic("pet animals")
+
+# Get final results
+results = searchable.get_results()
+print(f"Found {len(results)} images matching all criteria")
+```
+
+### Search Operators
+
+The SDK provides several search operators for different types of searches:
+
+```python
+from visual_layer_sdk.dataset import SearchOperator
+
+SearchOperator.IS              # Items must have ALL specified values
+SearchOperator.IS_NOT          # Items must NOT have ALL specified values together
+SearchOperator.IS_ONE_OF       # Items must have AT LEAST ONE of the specified values
+SearchOperator.IS_NOT_ONE_OF   # Items must have NONE of the specified values
+```
+
+### Issue Types
+
+Available issue types for quality filtering:
+
+```python
+from visual_layer_sdk.dataset import IssueType
+
+IssueType.MISLABELS      # Mislabeled items
+IssueType.OUTLIERS       # Statistical outliers
+IssueType.DUPLICATES     # Duplicate images
+IssueType.BLUR           # Blurry images
+IssueType.DARK           # Dark/underexposed images
+IssueType.BRIGHT         # Bright/overexposed images
+IssueType.NORMAL         # Normal images (no issues)
+IssueType.LABEL_OUTLIER  # Label outliers
+```
+
+### Semantic Relevance Levels
+
+Control the precision of semantic search:
+
+```python
+from visual_layer_sdk.dataset import SemanticRelevance
+
+SemanticRelevance.LOW_RELEVANCE     # 0.9 - High threshold, more precise results
+SemanticRelevance.MEDIUM_RELEVANCE  # 0.8 - Default threshold, balanced results
+SemanticRelevance.HIGH_RELEVANCE    # 0.7 - Low threshold, more inclusive results
+```
+
+### Getting Results
+
+#### `get_results(entity_type="IMAGES")`
+Execute the accumulated search query and return results as a DataFrame.
+
+```python
+# Execute the search and get results
+results = searchable.get_results()
+
+# Specify entity type
+results = searchable.get_results(entity_type="OBJECTS")  # For object detection results
+```
+
+#### `count(entity_type="IMAGES")`
+Get the count of results without constructing a DataFrame (more efficient).
+
+```python
+# Get count of results
+count = searchable.count()
+print(f"Found {count} matching images")
+
+# Both methods share the same cache, so calling count() after get_results() is instant
+```
+
+### Resetting and Managing Queries
+
+#### `reset()`
+Clear all search criteria and return to the original dataset.
+
+```python
+# Reset to original dataset
+searchable.reset()
+
+# Now get_results() will return all images in the dataset
+all_images = searchable.get_results()
+```
+
+#### `get_query()`
+Get the current VQL query structure.
+
+```python
+# View current query
+current_query = searchable.get_query()
+print(f"Current query: {current_query}")
+```
+
+### Advanced Search Patterns
+
+#### Combining Multiple Searchable Objects
+
+```python
+# Create separate searchable objects
+label_search = dataset.search().search_by_labels(["cat"])
+issue_search = dataset.search().search_by_issues([IssueType.BLUR])
+
+# Chain them together
+combined_search = label_search.chain_filters(issue_search)
+results = combined_search.get_results()
+```
+
+#### Conditional Search Building
+
+```python
+searchable = dataset.search()
+
+# Build search conditionally
+if include_cats:
+    searchable = searchable.search_by_labels(["cat"])
+
+if exclude_blur:
+    searchable = searchable.search_by_issues([IssueType.BLUR])
+
+if search_text:
+    searchable = searchable.search_by_semantic(search_text)
+
+# Execute final search
+results = searchable.get_results()
+```
+
+### Performance Tips
+
+1. **Use count() for quick checks**: If you only need the number of results, use `count()` instead of `get_results()`
+2. **Cache results**: Both `count()` and `get_results()` share the same cache, so subsequent calls are instant
+3. **Chain efficiently**: Build your search query step by step, then execute once at the end
+4. **Reset when needed**: Use `reset()` to clear previous search criteria when starting a new search
+
+### Complete Search Example
+
+```python
+from visual_layer_sdk.dataset import IssueType, SearchOperator, SemanticRelevance
+
+# Initialize search
+searchable = dataset.search()
+
+# Build complex search query
+searchable = searchable.search_by_labels(["cat", "dog"], SearchOperator.IS_ONE_OF)\
+                      .search_by_issues([IssueType.BLUR, IssueType.DARK], confidence_min=0.7)\
+                      .search_by_captions(["outdoors", "park"])\
+                      .search_by_semantic("pets playing outside", SemanticRelevance.MEDIUM_RELEVANCE)
+
+# Get results
+results = searchable.get_results()
+print(f"Found {len(results)} images matching all criteria")
+
+# Display sample results
+for idx, row in results.head(3).iterrows():
+    print(f"Image {idx}: {row.get('image_labels', 'N/A')} - {row.get('captions', 'N/A')}")
+
+# Get count for verification
+count = searchable.count()
+print(f"Count verification: {count}")
+
+# Reset for new search
+searchable.reset()
+new_results = searchable.search_by_labels(["bird"]).get_results()
+print(f"New search found {len(new_results)} bird images")
 ```
 
 ## Error Handling

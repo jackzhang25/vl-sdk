@@ -48,7 +48,6 @@ ALLOWED_ISSUE_NAMES = {v["name"] for v in ISSUE_TYPE_MAPPING.values()}
 
 
 class Dataset:
-    # TODO: add in details what search capabilities are available for the dataset
     def __init__(self, client, dataset_id: str, poll_interval: int = 10, timeout: int = 300):
         self.client = client
         self.dataset_id = dataset_id
@@ -553,7 +552,7 @@ class Dataset:
                 elif field == "semantic":
                     # Semantic search - convert to proper API format
                     relevance = config.get("relevance", 0.8)
-                    vql = [{"text": {"op": "semantic", "value": value, "relevance": relevance}}]
+                    vql = [{"text": {"op": "semantic", "value": value, "threshold": relevance}}]
                     results = self.search_by_vql(vql, entity_type)
                     all_results.append(results)
 

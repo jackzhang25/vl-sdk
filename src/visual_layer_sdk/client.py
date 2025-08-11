@@ -6,7 +6,7 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 
-from .dataset import Dataset, IssueType, SearchOperator
+from .dataset import Dataset, IssueType, SearchOperator, SemanticRelevance
 from .logger import get_logger
 
 
@@ -25,6 +25,10 @@ class VisualLayerClient:
         self.api_secret = api_secret
         self.session = requests.Session()
         self.logger = get_logger()
+
+        # Dictionary to store all created searchables
+        self._searchables = {}
+
         import logging
 
         sdk_logger = logging.getLogger("visual_layer_sdk")
@@ -74,6 +78,37 @@ class VisualLayerClient:
 
     def _get_headers_no_jwt(self) -> dict:
         return {"accept": "application/json", "Content-Type": "application/json"}
+
+    def add_searchable(self, searchable_id: str, searchable: "Searchable") -> None:
+        """
+        Add a Searchable object to the client's searchables dictionary.
+
+        Args:
+            searchable_id (str): The unique ID of the Searchable object
+            searchable: The Searchable object to store
+        """
+        self._searchables[searchable_id] = searchable
+
+    def get_searchable(self, searchable_id: str) -> "Searchable":
+        """
+        Get a Searchable object from the client's storage by ID.
+
+        Args:
+            searchable_id (str): The unique ID of the Searchable object
+
+        Returns:
+            Searchable: The stored Searchable object, or None if not found
+        """
+        return self._searchables.get(searchable_id)
+
+    def get_all_searchables(self) -> list:
+        """
+        Get all Searchable objects from the client's storage.
+
+        Returns:
+            list: List of all stored Searchable objects
+        """
+        return list(self._searchables.values())
 
     def healthcheck(self) -> dict:
         """Check the health of the API"""
@@ -406,10 +441,10 @@ def main():
         return
 
     client = VisualLayerClient(API_KEY, API_SECRET)
-    dataset = client.get_dataset_object("bc41491e-78ae-11ef-ba4b-8a774758b536")
-    results = dataset.search().search_by_captions(["leaf", "plant"], search_operator=SearchOperator.IS_ONE_OF).get_results()
-    print(f"Total rows: {len(results)}")
-    print(f"Shape: {results.shape}")
+    dataset = client.get_dataset_object("83e13af6-5b67-11f0-ae55-825b18749830")
+    results = dataset.search().search_by_semantic("vehicles", relevance=SemanticRelevance.LOW_RELEVANCE).search_by_issues(IssueType.DARK).count()
+    print(f"Total rows: {results}")
+    print(client.get_all_searchables())
 
 
 if __name__ == "__main__":
